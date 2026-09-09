@@ -783,35 +783,35 @@ if menu_selecionado == "📊 Dashboard":
         st.markdown(f'''
         <div style="background: linear-gradient(145deg, #1c232e, #131821); border: 1px solid rgba(255,255,255,0.08); border-top: 4px solid #38bdf8; border-radius: 10px; padding: 14px 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
             <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Créditos Recebidos (NC)</div>
-            <div style="font-size: 20px; font-weight: 900; color: #ffffff; margin-top: 4px;">R$ {total_nc:,.2f}</div>
+            <div style="font-size: 17px; font-weight: 800; white-space: nowrap; color: #ffffff; margin-top: 4px;">R$ {total_nc:,.2f}</div>
         </div>
         '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
     with c2:
         st.markdown(f'''
         <div style="background: linear-gradient(145deg, #1c232e, #131821); border: 1px solid rgba(255,255,255,0.08); border-top: 4px solid #60a5fa; border-radius: 10px; padding: 14px 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
             <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Total Empenhado (NE)</div>
-            <div style="font-size: 20px; font-weight: 900; color: #60a5fa; margin-top: 4px;">R$ {total_ne:,.2f}</div>
+            <div style="font-size: 17px; font-weight: 800; white-space: nowrap; color: #60a5fa; margin-top: 4px;">R$ {total_ne:,.2f}</div>
         </div>
         '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
     with c3:
         st.markdown(f'''
         <div style="background: linear-gradient(145deg, #1c232e, #131821); border: 1px solid rgba(255,255,255,0.08); border-top: 4px solid #22c55e; border-radius: 10px; padding: 14px 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
             <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Saldo Disponível SALC</div>
-            <div style="font-size: 20px; font-weight: 900; color: #22c55e; margin-top: 4px;">R$ {saldo_empenhar:,.2f}</div>
+            <div style="font-size: 17px; font-weight: 800; white-space: nowrap; color: #22c55e; margin-top: 4px;">R$ {saldo_empenhar:,.2f}</div>
         </div>
         '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
     with c4:
         st.markdown(f'''
         <div style="background: linear-gradient(145deg, #1c232e, #131821); border: 1px solid rgba(255,255,255,0.08); border-top: 4px solid #f59e0b; border-radius: 10px; padding: 14px 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
             <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Material Liquidado</div>
-            <div style="font-size: 20px; font-weight: 900; color: #f59e0b; margin-top: 4px;">R$ {total_liq:,.2f}</div>
+            <div style="font-size: 17px; font-weight: 800; white-space: nowrap; color: #f59e0b; margin-top: 4px;">R$ {total_liq:,.2f}</div>
         </div>
         '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
     with c5:
         st.markdown(f'''
         <div style="background: linear-gradient(145deg, #1c232e, #131821); border: 1px solid rgba(255,255,255,0.08); border-top: 4px solid #a855f7; border-radius: 10px; padding: 14px 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
             <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Ordem Bancária (Pago)</div>
-            <div style="font-size: 20px; font-weight: 900; color: #c084fc; margin-top: 4px;">R$ {total_pago:,.2f}</div>
+            <div style="font-size: 17px; font-weight: 800; white-space: nowrap; color: #c084fc; margin-top: 4px;">R$ {total_pago:,.2f}</div>
         </div>
         '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
 
@@ -1162,11 +1162,26 @@ elif menu_selecionado == "📑 Notas de Crédito":
                     </div>
                     ''', unsafe_allow_html=True)
 
-                    cd1, cd2, cd3, cd4 = st.columns(4)
-                    cd1.metric("Valor Total", f"R$ {nc_info['valor_total']:,.2f}")
-                    cd2.metric("Empenhado", f"R$ {nc_info['empenhado_real']:,.2f}")
-                    cd3.metric("Recolhido", f"R$ {nc_info['valor_recolhido'] or 0.0:,.2f}")
-                    cd4.metric("Disponível", f"R$ {saldo_det:,.2f}")
+                    st.markdown(f'''
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0;">
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid #C5A059; padding: 7px 10px; border-radius: 6px;">
+                            <div style="font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Valor Total</div>
+                            <div style="font-size: 15px; font-weight: 800; color: #ffffff; white-space: nowrap; margin-top: 2px;">R$ {nc_info['valor_total']:,.2f}</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid #60a5fa; padding: 7px 10px; border-radius: 6px;">
+                            <div style="font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Empenhado</div>
+                            <div style="font-size: 15px; font-weight: 800; color: #60a5fa; white-space: nowrap; margin-top: 2px;">R$ {nc_info['empenhado_real']:,.2f}</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid #fbbf24; padding: 7px 10px; border-radius: 6px;">
+                            <div style="font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Recolhido</div>
+                            <div style="font-size: 15px; font-weight: 800; color: #fbbf24; white-space: nowrap; margin-top: 2px;">R$ {nc_info['valor_recolhido'] or 0.0:,.2f}</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid #22c55e; padding: 7px 10px; border-radius: 6px;">
+                            <div style="font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Disponível</div>
+                            <div style="font-size: 15px; font-weight: 800; color: #22c55e; white-space: nowrap; margin-top: 2px;">R$ {saldo_det:,.2f}</div>
+                        </div>
+                    </div>
+                    '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
 
                     st.markdown("---")
                     ci1, ci2, ci3 = st.columns(3)
@@ -1445,10 +1460,22 @@ elif menu_selecionado == "📋 Notas de Empenho":
                     </div>
                     ''', unsafe_allow_html=True)
 
-                    cne1, cne2, cne3 = st.columns(3)
-                    cne1.metric("Valor do Empenho", f"R$ {ne_info['valor_ne']:,.2f}")
-                    cne2.metric("Emissão", formatar_data_br(ne_info['data_emissao']))
-                    cne3.metric("Limite de Entrega", formatar_data_br(ne_info['data_limite']))
+                    st.markdown(f'''
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0;">
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid #38bdf8; padding: 7px 10px; border-radius: 6px;">
+                            <div style="font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Valor do Empenho</div>
+                            <div style="font-size: 15px; font-weight: 800; color: #38bdf8; white-space: nowrap; margin-top: 2px;">R$ {ne_info['valor_ne']:,.2f}</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid #ffffff; padding: 7px 10px; border-radius: 6px;">
+                            <div style="font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Data de Emissão</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #ffffff; white-space: nowrap; margin-top: 2px;">{formatar_data_br(ne_info['data_emissao'])}</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid #fbbf24; padding: 7px 10px; border-radius: 6px;">
+                            <div style="font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Limite de Entrega</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #fbbf24; white-space: nowrap; margin-top: 2px;">{formatar_data_br(ne_info['data_limite'])}</div>
+                        </div>
+                    </div>
+                    '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
 
                     st.markdown("---")
                     st.markdown(f"📧 **E-mail Oficial:** [{ne_info['fornecedor_email']}](mailto:{ne_info['fornecedor_email']})" if ne_info['fornecedor_email'] else "📧 **E-mail Oficial:** *Não informado*")
