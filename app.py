@@ -81,8 +81,39 @@ def exportar_excel_seguro(df_dados, nome_aba="Dados"):
         buf.seek(0)
         return buf
     except Exception:
-        return None
+        pass
+    
+    # Fallback puro em Python sem dependência externa
+    try:
+        import zipfile, xml.sax.saxutils as saxutils
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as zf:
+            content_types = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'
+            zf.writestr('[Content_Types].xml', content_types)
+            rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+            zf.writestr('_rels/.rels', rels)
+            wb_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+            zf.writestr('xl/_rels/workbook.xml.rels', wb_rels)
+            wb = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="{saxutils.escape(nome_aba[:31])}" sheetId="1" r:id="rId1"/></sheets></workbook>'
+            zf.writestr('xl/workbook.xml', wb)
 
+            sheet_rows = []
+            cols = list(df_dados.columns)
+            header_cells = "".join([f'<c t="inlineStr"><is><t>{saxutils.escape(str(c))}</t></is></c>' for c in cols])
+            sheet_rows.append(f'<row r="1">{header_cells}</row>')
+            for r_idx, (_, row) in enumerate(df_dados.iterrows(), start=2):
+                cells = []
+                for val in row:
+                    s_val = saxutils.escape(str(val) if pd.notna(val) else '')
+                    cells.append(f'<c t="inlineStr"><is><t>{s_val}</t></is></c>')
+                sheet_rows.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
+
+            sheet_xml = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{"".join(sheet_rows)}</sheetData></worksheet>'
+            zf.writestr('xl/worksheets/sheet1.xml', sheet_xml)
+        output.seek(0)
+        return output
+    except Exception:
+        return None
 def get_connection():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -1024,6 +1055,58 @@ elif menu_selecionado == "📑 Notas de Crédito":
         nc_info = dict(c.fetchone())
         saldo_aberta = max(nc_info['valor_total'] - nc_info['empenhado_real'] - (nc_info['valor_recolhido'] or 0.0), 0.0)
 
+                # Busca as Notas de Empenho vinculadas a esta NC
+        c.execute('''
+        SELECT numero_ne, data_emissao, fornecedor_nome, fornecedor_cnpj, valor_ne, status
+        FROM notas_empenho
+        WHERE nc_id = ?
+        ORDER BY id DESC
+        ''', (id_aberta,))
+        nes_vinculadas_lista = c.fetchall()
+
+        if nes_vinculadas_lista:
+            linhas_ne_vinc = ""
+            for ne_v in nes_vinculadas_lista:
+                st_cor = "#38bdf8" if ne_v['status'] == 'Pago' else ("#fbbf24" if ne_v['status'] == 'Liquidado' else "#4ade80")
+                linhas_ne_vinc += f'''
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02);">
+                    <td style="padding: 7px 10px; font-weight: 800; color: #ffffff;">{ne_v['numero_ne']}</td>
+                    <td style="padding: 7px 10px; color: #cbd5e1;">{formatar_data_br(ne_v['data_emissao'])}</td>
+                    <td style="padding: 7px 10px; color: #f8fafc; font-weight: 600;">{ne_v['fornecedor_nome'][:40]}</td>
+                    <td style="padding: 7px 10px; color: #94a3b8; font-size: 11.5px;">{ne_v['fornecedor_cnpj']}</td>
+                    <td style="padding: 7px 10px; font-weight: 800; color: #38bdf8; text-align: right;">R$ {ne_v['valor_ne']:,.2f}</td>
+                    <td style="padding: 7px 10px; text-align: center;"><span style="background: {st_cor}; color: #000; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 800;">{ne_v['status']}</span></td>
+                </tr>
+                '''.replace(",", "X").replace(".", ",").replace("X", ".")
+
+            tabela_nes_vinculadas_html = f'''
+            <hr style="border-color: rgba(255,255,255,0.15); margin: 16px 0 12px 0;">
+            <div style="font-size: 14px; font-weight: 900; color: #C5A059; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
+                📋 Notas de Empenho Vinculadas a esta NC ({len(nes_vinculadas_lista)} empenho(s))
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; border-radius: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,0.12);">
+                <thead>
+                    <tr style="background: rgba(10,34,64,0.85); border-bottom: 1px solid rgba(197,160,89,0.4); color: #C5A059; font-weight: 800; text-transform: uppercase; font-size: 11.5px;">
+                        <th style="padding: 8px 10px; text-align: left;">Número NE</th>
+                        <th style="padding: 8px 10px; text-align: left;">Data Emissão</th>
+                        <th style="padding: 8px 10px; text-align: left;">Fornecedor</th>
+                        <th style="padding: 8px 10px; text-align: left;">CNPJ</th>
+                        <th style="padding: 8px 10px; text-align: right;">Valor Empenhado</th>
+                        <th style="padding: 8px 10px; text-align: center;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {linhas_ne_vinc}
+                </tbody>
+            </table>
+            '''
+        else:
+            tabela_nes_vinculadas_html = '''
+            <hr style="border-color: rgba(255,255,255,0.15); margin: 16px 0 12px 0;">
+            <div style="background: rgba(255,255,255,0.04); border: 1px dashed rgba(255,255,255,0.18); border-radius: 6px; padding: 12px; text-align: center; color: #cbd5e1; font-size: 13px;">
+                ℹ️ Nenhuma Nota de Empenho vinculada a esta Nota de Crédito até o momento. O saldo permanece 100% disponível.
+            </div>
+            '''
         with st.container():
             st.markdown(f'''
             <div style="background: linear-gradient(145deg, #243142, #18222e); border: 2px solid #C5A059; border-radius: 12px; padding: 22px; margin-bottom: 22px; box-shadow: 0 8px 24px rgba(0,0,0,0.6);">
@@ -1048,6 +1131,7 @@ elif menu_selecionado == "📑 Notas de Crédito":
                     <div><span style="color: #94a3b8;">Plano Interno (PI):</span> <b style="color: #fff;">{nc_info['pi']}</b></div>
                     <div><span style="color: #94a3b8;">UG Emitente:</span> <b style="color: #fff;">{nc_info['ug_emitente']}</b></div>
                 </div>
+                {tabela_nes_vinculadas_html}
             </div>
             ''', unsafe_allow_html=True)
             
@@ -2437,98 +2521,186 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
     conn.close()
 
 elif menu_selecionado == "📁 Relatórios":
-    st.title("📁 Central de Relatórios com Filtros Dependentes")
+    st.title("📁 Central de Relatórios Oficiais com Filtros")
     conn = get_connection()
 
-    tipo_relatorio = st.selectbox("Selecione o Tipo de Relatório:", ["Notas de Crédito", "Notas de Empenho", "Notas Fiscais"])
+    tipo_relatorio = st.selectbox("Selecione o Relatório a Emitir:", ["Notas de Crédito (com Empenhos Vinculados)", "Notas de Empenho", "Notas Fiscais (Recebimento)"])
 
-    if tipo_relatorio == "Notas de Crédito":
-        st.markdown("##### 🔍 Filtros das Notas de Crédito")
+    if "Notas de Crédito" in tipo_relatorio:
+        st.markdown("##### 🔍 Filtros de Consulta das Notas de Crédito")
         fc1, fc2, fc3 = st.columns(3)
-        df_ncs_base = pd.read_sql_query(f"SELECT * FROM notas_credito WHERE om_id = {user['om_id']}", conn)
+        df_ncs_base = pd.read_sql_query(f"SELECT DISTINCT enquadramento FROM notas_credito WHERE om_id = {user['om_id']}", conn)
         
         enq_opts = ["Todos"] + sorted(list(set(df_ncs_base['enquadramento'].dropna().tolist())))
-        f_enq = fc1.selectbox("Enquadramento:", enq_opts)
+        f_enq = fc1.selectbox("Enquadramento:", enq_opts, key="f_enq_rel")
         
         tipo_opts = ["Todos", "Consumo (33)", "Permanente (44)"]
-        f_tipo = fc2.selectbox("Natureza da Despesa:", tipo_opts)
-        busca_texto = fc3.text_input("Palavra-chave na Finalidade:")
+        f_tipo = fc2.selectbox("Natureza da Despesa:", tipo_opts, key="f_tipo_rel")
+        busca_texto = fc3.text_input("Palavra-chave na Finalidade:", key="f_txt_rel")
 
-        q_rel_nc = f"SELECT * FROM notas_credito WHERE om_id = {user['om_id']}"
+        q_rel_nc = f"""
+        SELECT nc.numero_nc as "Número NC",
+               nc.data_emissao,
+               nc.data_limite_empenho,
+               nc.enquadramento as "Enquadramento",
+               nc.natureza_despesa as "ND",
+               nc.pi as "PI",
+               nc.valor_total as "Valor Total (R$)",
+               COALESCE((SELECT SUM(valor_ne) FROM notas_empenho WHERE nc_id = nc.id), 0.0) as "Total Empenhado (R$)",
+               (nc.valor_total - COALESCE(nc.valor_recolhido, 0.0) - COALESCE((SELECT SUM(valor_ne) FROM notas_empenho WHERE nc_id = nc.id), 0.0)) as "Saldo Disponível (R$)",
+               COALESCE((SELECT GROUP_CONCAT(numero_ne, ', ') FROM notas_empenho WHERE nc_id = nc.id), 'Sem empenho') as "Empenhos Vinculados",
+               nc.finalidade as "Finalidade"
+        FROM notas_credito nc
+        WHERE nc.om_id = {user['om_id']}
+        """
         if f_enq != "Todos":
-            q_rel_nc += f" AND enquadramento = '{f_enq}'"
+            q_rel_nc += f" AND nc.enquadramento = '{f_enq}'"
         if f_tipo == "Consumo (33)":
-            q_rel_nc += " AND natureza_despesa LIKE '%33%'"
+            q_rel_nc += " AND nc.natureza_despesa LIKE '%33%'"
         elif f_tipo == "Permanente (44)":
-            q_rel_nc += " AND natureza_despesa LIKE '%44%'"
+            q_rel_nc += " AND nc.natureza_despesa LIKE '%44%'"
         if busca_texto:
-            q_rel_nc += f" AND finalidade LIKE '%{busca_texto}%'"
+            q_rel_nc += f" AND nc.finalidade LIKE '%{busca_texto}%'"
+
+        q_rel_nc += " ORDER BY nc.data_emissao DESC"
 
         df_rel_nc = pd.read_sql_query(q_rel_nc, conn)
         if not df_rel_nc.empty:
             df_rel_nc['Data Emissão'] = df_rel_nc['data_emissao'].apply(formatar_data_br)
             df_rel_nc['Dt Lim Empenho'] = df_rel_nc['data_limite_empenho'].apply(formatar_data_br)
-            st.dataframe(df_rel_nc[['numero_nc', 'Data Emissão', 'Dt Lim Empenho', 'enquadramento', 'natureza_despesa', 'pi', 'valor_total', 'finalidade']], use_container_width=True, hide_index=True)
             
-            col_csv_nc, col_xlsx_nc = st.columns(2)
+            # Formata colunas para exibição amigável
+            cols_ordem = [
+                "Número NC", "Data Emissão", "Dt Lim Empenho", "Enquadramento", "ND", "PI",
+                "Valor Total (R$)", "Total Empenhado (R$)", "Saldo Disponível (R$)", 
+                "Empenhos Vinculados", "Finalidade"
+            ]
+            df_exib_nc = df_rel_nc[cols_ordem].copy()
+
+            # Formata valores em R$
+            df_exib_formatado = df_exib_nc.copy()
+            df_exib_formatado['Valor Total (R$)'] = df_exib_formatado['Valor Total (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            df_exib_formatado['Total Empenhado (R$)'] = df_exib_formatado['Total Empenhado (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            df_exib_formatado['Saldo Disponível (R$)'] = df_exib_formatado['Saldo Disponível (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+            st.dataframe(df_exib_formatado, use_container_width=True, hide_index=True)
+            
+            col_csv_nc, col_xlsx_nc, col_pdf_nc = st.columns(3)
             with col_csv_nc:
-                st.download_button("📥 Baixar CSV", data=df_rel_nc.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_credito.csv", mime="text/csv", use_container_width=True)
+                st.download_button("📥 Baixar CSV", data=df_exib_nc.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_credito.csv", mime="text/csv", use_container_width=True)
+            
             with col_xlsx_nc:
-                buffer_nc = exportar_excel_seguro(df_rel_nc, 'Notas de Crédito')
-                if buffer_nc:
-                    st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_nc, file_name="relatorio_notas_credito.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                buf_excel_nc = exportar_excel_seguro(df_exib_nc, 'Notas de Crédito')
+                if buf_excel_nc:
+                    st.download_button("📊 Baixar Planilha (.xlsx / Calc)", data=buf_excel_nc, file_name="relatorio_notas_credito.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            
+            with col_pdf_nc:
+                buf_pdf_nc = gerar_pdf_tabela_seguro("RELATÓRIO GERAL DE NOTAS DE CRÉDITO E EMPENHOS VINCULADOS", df_exib_formatado)
+                if buf_pdf_nc:
+                    st.download_button("📄 Baixar em PDF (.pdf)", data=buf_pdf_nc, file_name="relatorio_notas_credito.pdf", mime="application/pdf", use_container_width=True)
         else:
             st.info("Nenhuma Nota de Crédito encontrada com os filtros selecionados.")
 
-    elif tipo_relatorio == "Notas de Empenho":
-        st.markdown("##### 🔍 Filtros das Notas de Empenho")
+    elif "Notas de Empenho" in tipo_relatorio:
+        st.markdown("##### 🔍 Filtros de Consulta das Notas de Empenho")
         fe1, fe2, fe3 = st.columns(3)
-        df_nes_base = pd.read_sql_query(f"SELECT * FROM notas_empenho WHERE om_id = {user['om_id']}", conn)
+        df_nes_base = pd.read_sql_query(f"SELECT DISTINCT status, tipo_empenho FROM notas_empenho WHERE om_id = {user['om_id']}", conn)
         
         status_opts = ["Todos"] + sorted(list(set(df_nes_base['status'].dropna().tolist())))
-        f_status = fe1.selectbox("Status de Execução:", status_opts)
+        f_status = fe1.selectbox("Status de Execução:", status_opts, key="f_st_ne_rel")
         
         tipo_emp_opts = ["Todos"] + sorted(list(set(df_nes_base['tipo_empenho'].dropna().tolist())))
-        f_tipo_emp = fe2.selectbox("Tipo de Empenho:", tipo_emp_opts)
-        busca_forn = fe3.text_input("Filtrar por Fornecedor:")
+        f_tipo_emp = fe2.selectbox("Tipo de Empenho:", tipo_emp_opts, key="f_tipo_ne_rel")
+        busca_forn = fe3.text_input("Filtrar por Fornecedor (Nome ou CNPJ):", key="f_forn_ne_rel")
 
-        q_rel_ne = f"SELECT * FROM notas_empenho WHERE om_id = {user['om_id']}"
+        q_rel_ne = f"""
+        SELECT ne.numero_ne as "Número NE",
+               nc.numero_nc as "NC Origem",
+               ne.tipo_empenho as "Tipo",
+               ne.fornecedor_nome as "Fornecedor",
+               ne.fornecedor_cnpj as "CNPJ",
+               ne.valor_ne as "Valor NE (R$)",
+               ne.data_emissao,
+               COALESCE(ne.nova_data_limite, ne.data_limite) as data_limite,
+               ne.status as "Status"
+        FROM notas_empenho ne
+        JOIN notas_credito nc ON ne.nc_id = nc.id
+        WHERE ne.om_id = {user['om_id']}
+        """
         if f_status != "Todos":
-            q_rel_ne += f" AND status = '{f_status}'"
+            q_rel_ne += f" AND ne.status = '{f_status}'"
         if f_tipo_emp != "Todos":
-            q_rel_ne += f" AND tipo_empenho = '{f_tipo_emp}'"
+            q_rel_ne += f" AND ne.tipo_empenho = '{f_tipo_emp}'"
         if busca_forn:
-            q_rel_ne += f" AND (fornecedor_nome LIKE '%{busca_forn}%' OR fornecedor_cnpj LIKE '%{busca_forn}%')"
+            q_rel_ne += f" AND (ne.fornecedor_nome LIKE '%{busca_forn}%' OR ne.fornecedor_cnpj LIKE '%{busca_forn}%')"
+
+        q_rel_ne += " ORDER BY ne.data_emissao DESC"
 
         df_rel_ne = pd.read_sql_query(q_rel_ne, conn)
         if not df_rel_ne.empty:
             df_rel_ne['Data Emissão'] = df_rel_ne['data_emissao'].apply(formatar_data_br)
             df_rel_ne['Data Limite Entrega'] = df_rel_ne['data_limite'].apply(formatar_data_br)
-            st.dataframe(df_rel_ne[['numero_ne', 'tipo_empenho', 'fornecedor_nome', 'fornecedor_cnpj', 'valor_ne', 'Data Emissão', 'Data Limite Entrega', 'status']], use_container_width=True, hide_index=True)
             
-            col_csv_ne, col_xlsx_ne = st.columns(2)
+            cols_ne_ordem = ["Número NE", "NC Origem", "Tipo", "Fornecedor", "CNPJ", "Valor NE (R$)", "Data Emissão", "Data Limite Entrega", "Status"]
+            df_exib_ne = df_rel_ne[cols_ne_ordem].copy()
+
+            df_exib_ne_fmt = df_exib_ne.copy()
+            df_exib_ne_fmt['Valor NE (R$)'] = df_exib_ne_fmt['Valor NE (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+            st.dataframe(df_exib_ne_fmt, use_container_width=True, hide_index=True)
+            
+            col_csv_ne, col_xlsx_ne, col_pdf_ne = st.columns(3)
             with col_csv_ne:
-                st.download_button("📥 Baixar CSV", data=df_rel_ne.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_empenho.csv", mime="text/csv", use_container_width=True)
+                st.download_button("📥 Baixar CSV", data=df_exib_ne.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_empenho.csv", mime="text/csv", use_container_width=True)
             with col_xlsx_ne:
-                buffer_ne = exportar_excel_seguro(df_rel_ne, 'Notas de Empenho')
-                if buffer_ne:
-                    st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_ne, file_name="relatorio_notas_empenho.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                buf_excel_ne = exportar_excel_seguro(df_exib_ne, 'Notas de Empenho')
+                if buf_excel_ne:
+                    st.download_button("📊 Baixar Planilha (.xlsx / Calc)", data=buf_excel_ne, file_name="relatorio_notas_empenho.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            with col_pdf_ne:
+                buf_pdf_ne = gerar_pdf_tabela_seguro("RELATÓRIO GERAL DE NOTAS DE EMPENHO", df_exib_ne_fmt)
+                if buf_pdf_ne:
+                    st.download_button("📄 Baixar em PDF (.pdf)", data=buf_pdf_ne, file_name="relatorio_notas_empenho.pdf", mime="application/pdf", use_container_width=True)
         else:
             st.info("Nenhum Empenho encontrado com os filtros selecionados.")
 
-    elif tipo_relatorio == "Notas Fiscais":
-        df_rel_nf = pd.read_sql_query(f"SELECT * FROM notas_fiscais WHERE om_id = {user['om_id']}", conn)
+    elif "Notas Fiscais" in tipo_relatorio:
+        q_rel_nf = f"""
+        SELECT nf.numero_nf as "Número NF",
+               ne.numero_ne as "Empenho (NE)",
+               nc.numero_nc as "NC Origem",
+               nf.empresa_cnpj as "CNPJ Fornecedor",
+               nf.data_entrada_almox,
+               nf.valor_nf as "Valor NF (R$)",
+               nf.tipo_liquidacao as "Tipo Liquidação",
+               nf.situacao as "Situação"
+        FROM notas_fiscais nf
+        JOIN notas_empenho ne ON nf.ne_id = ne.id
+        JOIN notas_credito nc ON ne.nc_id = nc.id
+        WHERE nf.om_id = {user['om_id']}
+        ORDER BY nf.id DESC
+        """
+        df_rel_nf = pd.read_sql_query(q_rel_nf, conn)
         if not df_rel_nf.empty:
             df_rel_nf['Data Entrada Almox'] = df_rel_nf['data_entrada_almox'].apply(formatar_data_br)
-            st.dataframe(df_rel_nf[['numero_nf', 'empresa_cnpj', 'Data Entrada Almox', 'valor_nf', 'tipo_liquidacao', 'situacao']], use_container_width=True, hide_index=True)
+            cols_nf = ["Número NF", "Empenho (NE)", "NC Origem", "CNPJ Fornecedor", "Data Entrada Almox", "Valor NF (R$)", "Tipo Liquidação", "Situação"]
+            df_exib_nf = df_rel_nf[cols_nf].copy()
+
+            df_exib_nf_fmt = df_exib_nf.copy()
+            df_exib_nf_fmt['Valor NF (R$)'] = df_exib_nf_fmt['Valor NF (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+            st.dataframe(df_exib_nf_fmt, use_container_width=True, hide_index=True)
             
-            col_csv_nf, col_xlsx_nf = st.columns(2)
+            col_csv_nf, col_xlsx_nf, col_pdf_nf = st.columns(3)
             with col_csv_nf:
-                st.download_button("📥 Baixar CSV", data=df_rel_nf.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_fiscais.csv", mime="text/csv", use_container_width=True)
+                st.download_button("📥 Baixar CSV", data=df_exib_nf.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_fiscais.csv", mime="text/csv", use_container_width=True)
             with col_xlsx_nf:
-                buffer_nf = exportar_excel_seguro(df_rel_nf, 'Notas Fiscais')
-                if buffer_nf:
-                    st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_nf, file_name="relatorio_notas_fiscais.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                buf_excel_nf = exportar_excel_seguro(df_exib_nf, 'Notas Fiscais')
+                if buf_excel_nf:
+                    st.download_button("📊 Baixar Planilha (.xlsx / Calc)", data=buf_excel_nf, file_name="relatorio_notas_fiscais.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            with col_pdf_nf:
+                buf_pdf_nf = gerar_pdf_tabela_seguro("RELATÓRIO GERAL DE NOTAS FISCAIS RECEBIDAS", df_exib_nf_fmt)
+                if buf_pdf_nf:
+                    st.download_button("📄 Baixar em PDF (.pdf)", data=buf_pdf_nf, file_name="relatorio_notas_fiscais.pdf", mime="application/pdf", use_container_width=True)
         else:
             st.info("Nenhuma Nota Fiscal encontrada.")
 
