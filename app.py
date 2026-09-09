@@ -417,8 +417,8 @@ def login():
     oms = pd.read_sql_query("SELECT id, sigla FROM oms", conn)
     conn.close()
 
-    lembrado_id = st.query_params.get("lembrar_id", "0401320478")
-    lembrado_senha = st.query_params.get("lembrar_senha", "06109121")
+    lembrado_id = st.query_params.get("lembrar_id", "")
+    lembrado_senha = st.query_params.get("lembrar_senha", "")
 
     with st.sidebar.form("form_login"):
         om_escolhida = st.selectbox("Organização Militar (OM)", oms['sigla'].tolist())
