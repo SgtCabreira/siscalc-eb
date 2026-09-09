@@ -1042,111 +1042,6 @@ elif menu_selecionado == "📑 Notas de Crédito":
             else:
                 st.info("Nenhuma NC cadastrada para exclusão.")
 
-    if st.session_state.get("nc_aberta_id"):
-        id_aberta = st.session_state["nc_aberta_id"]
-        c = conn.cursor()
-        c.execute('''
-        SELECT nc.*, COALESCE(SUM(ne.valor_ne), 0.0) as empenhado_real
-        FROM notas_credito nc
-        LEFT JOIN notas_empenho ne ON nc.id = ne.nc_id
-        WHERE nc.id = ?
-        GROUP BY nc.id
-        ''', (id_aberta,))
-        nc_info = dict(c.fetchone())
-        saldo_aberta = max(nc_info['valor_total'] - nc_info['empenhado_real'] - (nc_info['valor_recolhido'] or 0.0), 0.0)
-
-                # Busca as Notas de Empenho vinculadas a esta NC
-        c.execute('''
-        SELECT numero_ne, data_emissao, fornecedor_nome, fornecedor_cnpj, valor_ne, status
-        FROM notas_empenho
-        WHERE nc_id = ?
-        ORDER BY id DESC
-        ''', (id_aberta,))
-        nes_vinculadas_lista = c.fetchall()
-
-        if nes_vinculadas_lista:
-            linhas_ne_vinc = ""
-            for ne_v in nes_vinculadas_lista:
-                st_cor = "#38bdf8" if ne_v['status'] == 'Pago' else ("#fbbf24" if ne_v['status'] == 'Liquidado' else "#4ade80")
-                linhas_ne_vinc += f'''
-                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02);">
-                    <td style="padding: 7px 10px; font-weight: 800; color: #ffffff;">{ne_v['numero_ne']}</td>
-                    <td style="padding: 7px 10px; color: #cbd5e1;">{formatar_data_br(ne_v['data_emissao'])}</td>
-                    <td style="padding: 7px 10px; color: #f8fafc; font-weight: 600;">{ne_v['fornecedor_nome'][:40]}</td>
-                    <td style="padding: 7px 10px; color: #94a3b8; font-size: 11.5px;">{ne_v['fornecedor_cnpj']}</td>
-                    <td style="padding: 7px 10px; font-weight: 800; color: #38bdf8; text-align: right;">R$ {ne_v['valor_ne']:,.2f}</td>
-                    <td style="padding: 7px 10px; text-align: center;"><span style="background: {st_cor}; color: #000; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 800;">{ne_v['status']}</span></td>
-                </tr>
-                '''.replace(",", "X").replace(".", ",").replace("X", ".")
-
-            tabela_nes_vinculadas_html = f'''
-            <hr style="border-color: rgba(255,255,255,0.15); margin: 16px 0 12px 0;">
-            <div style="font-size: 14px; font-weight: 900; color: #C5A059; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
-                📋 Notas de Empenho Vinculadas a esta NC ({len(nes_vinculadas_lista)} empenho(s))
-            </div>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; border-radius: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,0.12);">
-                <thead>
-                    <tr style="background: rgba(10,34,64,0.85); border-bottom: 1px solid rgba(197,160,89,0.4); color: #C5A059; font-weight: 800; text-transform: uppercase; font-size: 11.5px;">
-                        <th style="padding: 8px 10px; text-align: left;">Número NE</th>
-                        <th style="padding: 8px 10px; text-align: left;">Data Emissão</th>
-                        <th style="padding: 8px 10px; text-align: left;">Fornecedor</th>
-                        <th style="padding: 8px 10px; text-align: left;">CNPJ</th>
-                        <th style="padding: 8px 10px; text-align: right;">Valor Empenhado</th>
-                        <th style="padding: 8px 10px; text-align: center;">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {linhas_ne_vinc}
-                </tbody>
-            </table>
-            '''
-        else:
-            tabela_nes_vinculadas_html = '''
-            <hr style="border-color: rgba(255,255,255,0.15); margin: 16px 0 12px 0;">
-            <div style="background: rgba(255,255,255,0.04); border: 1px dashed rgba(255,255,255,0.18); border-radius: 6px; padding: 12px; text-align: center; color: #cbd5e1; font-size: 13px;">
-                ℹ️ Nenhuma Nota de Empenho vinculada a esta Nota de Crédito até o momento. O saldo permanece 100% disponível.
-            </div>
-            '''
-        with st.container():
-            st.markdown(f'''
-            <div style="background: linear-gradient(145deg, #243142, #18222e); border: 2px solid #C5A059; border-radius: 12px; padding: 22px; margin-bottom: 22px; box-shadow: 0 8px 24px rgba(0,0,0,0.6);">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 13px; font-weight: 900; color: #C5A059; text-transform: uppercase; letter-spacing: 0.5px;">📋 Dossiê da Nota de Crédito</span>
-                    <span style="font-size: 20px; font-weight: 900; color: #ffffff;">{nc_info['numero_nc']}</span>
-                </div>
-                <div style="font-size: 19px; font-weight: 800; color: #ffffff; margin-top: 8px;">{nc_info['finalidade']}</div>
-                <hr style="border-color: rgba(255,255,255,0.15); margin: 14px 0;">
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px;">
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"><span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Valor Total da NC:</span><br><b style="color: #ffffff; font-size: 17px;">R$ {nc_info['valor_total']:,.2f}</b></div>
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"><span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Total Empenhado:</span><br><b style="color: #60a5fa; font-size: 17px;">R$ {nc_info['empenhado_real']:,.2f}</b></div>
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"><span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Valor Recolhido:</span><br><b style="color: #fbbf24; font-size: 17px;">R$ {nc_info['valor_recolhido'] or 0.0:,.2f}</b></div>
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"><span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Saldo Disponível:</span><br><b style="color: #4ade80; font-size: 17px;">R$ {saldo_aberta:,.2f}</b></div>
-                </div>
-                <hr style="border-color: rgba(255,255,255,0.15); margin: 14px 0;">
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 13.5px; color: #f1f5f9;">
-                    <div><span style="color: #94a3b8;">Data Emissão:</span> <b style="color: #fff;">{formatar_data_br(nc_info['data_emissao'])}</b></div>
-                    <div><span style="color: #94a3b8;">Data Limite Empenho:</span> <b style="color: #fff;">{formatar_data_br(nc_info['data_limite_empenho'])}</b></div>
-                    <div><span style="color: #94a3b8;">Enquadramento:</span> <b style="color: #fff;">{nc_info['enquadramento']}</b></div>
-                    <div><span style="color: #94a3b8;">Natureza da Despesa:</span> <b style="color: #fff;">{nc_info['natureza_despesa']}</b></div>
-                    <div><span style="color: #94a3b8;">Plano Interno (PI):</span> <b style="color: #fff;">{nc_info['pi']}</b></div>
-                    <div><span style="color: #94a3b8;">UG Emitente:</span> <b style="color: #fff;">{nc_info['ug_emitente']}</b></div>
-                </div>
-                {tabela_nes_vinculadas_html}
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            col_fechar, col_rec, col_salvar_rec = st.columns([1, 2, 1])
-            if col_fechar.button("✖ Fechar Dossiê", use_container_width=True):
-                del st.session_state["nc_aberta_id"]
-                st.rerun()
-
-            novo_rec = col_rec.number_input("Informar Valor de Saldo Recolhido (R$):", value=float(nc_info['valor_recolhido'] or 0.0), step=10.0, format="%.2f")
-            if col_salvar_rec.button("Gravar Baixa", type="primary", use_container_width=True):
-                c.execute("UPDATE notas_credito SET valor_recolhido = ? WHERE id = ?", (novo_rec, id_aberta))
-                conn.commit()
-                st.success("Valor recolhido atualizado com sucesso!")
-                st.rerun()
-
     # Controles de Ordenação e Filtro
     col_t_nc, col_ord_nc, col_flt_nc = st.columns([6, 1, 1])
     with col_t_nc:
@@ -1247,9 +1142,65 @@ elif menu_selecionado == "📑 Notas de Crédito":
                     </div>
                 </div>
                 ''', unsafe_allow_html=True)
-                if st.button("🔍 Ver Detalhes", key=f"btn_card_nc_{row['id']}", use_container_width=True):
-                    st.session_state["nc_aberta_id"] = row['id']
-                    st.rerun()
+                with st.popover("🔍 Ver Detalhes", key=f"pop_nc_{row['id']}", use_container_width=True):
+                    c = conn.cursor()
+                    c.execute('''
+                    SELECT nc.*, COALESCE(SUM(ne.valor_ne), 0.0) as empenhado_real
+                    FROM notas_credito nc
+                    LEFT JOIN notas_empenho ne ON nc.id = ne.nc_id
+                    WHERE nc.id = ?
+                    GROUP BY nc.id
+                    ''', (row['id'],))
+                    nc_info = dict(c.fetchone())
+                    saldo_det = max(nc_info['valor_total'] - nc_info['empenhado_real'] - (nc_info['valor_recolhido'] or 0.0), 0.0)
+
+                    st.markdown(f'''
+                    <div style="border-bottom: 2px solid #C5A059; padding-bottom: 8px; margin-bottom: 12px;">
+                        <div style="font-size: 11px; font-weight: 800; color: #C5A059; text-transform: uppercase; letter-spacing: 0.5px;">Dossiê da Nota de Crédito</div>
+                        <div style="font-size: 19px; font-weight: 900; color: #ffffff;">{nc_info['numero_nc']}</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #f1f5f9; margin-top: 4px;">{nc_info['finalidade']}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                    cd1, cd2, cd3, cd4 = st.columns(4)
+                    cd1.metric("Valor Total", f"R$ {nc_info['valor_total']:,.2f}")
+                    cd2.metric("Empenhado", f"R$ {nc_info['empenhado_real']:,.2f}")
+                    cd3.metric("Recolhido", f"R$ {nc_info['valor_recolhido'] or 0.0:,.2f}")
+                    cd4.metric("Disponível", f"R$ {saldo_det:,.2f}")
+
+                    st.markdown("---")
+                    ci1, ci2, ci3 = st.columns(3)
+                    ci1.markdown(f"**Emissão:** {formatar_data_br(nc_info['data_emissao'])}")
+                    ci1.markdown(f"**Limite:** {formatar_data_br(nc_info['data_limite_empenho'])}")
+                    ci2.markdown(f"**Enquadramento:** {nc_info['enquadramento']}")
+                    ci2.markdown(f"**ND:** {nc_info['natureza_despesa']}")
+                    ci3.markdown(f"**PI:** {nc_info['pi']}")
+                    ci3.markdown(f"**UG:** {nc_info['ug_emitente']}")
+
+                    # Notas de Empenho vinculadas - Renderizado limpo via DataFrame nativo (sem código HTML visível)
+                    st.markdown("---")
+                    df_nes_vinc = pd.read_sql_query(f'''
+                    SELECT numero_ne as "Número NE", data_emissao as "Emissão", fornecedor_nome as "Fornecedor",
+                           fornecedor_cnpj as "CNPJ", valor_ne as "Valor (R$)", status as "Status"
+                    FROM notas_empenho WHERE nc_id = {row['id']} ORDER BY id DESC
+                    ''', conn)
+
+                    if not df_nes_vinc.empty:
+                        df_nes_vinc['Emissão'] = df_nes_vinc['Emissão'].apply(formatar_data_br)
+                        df_nes_vinc['Valor (R$)'] = df_nes_vinc['Valor (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                        st.markdown(f"**📋 Notas de Empenho Vinculadas ({len(df_nes_vinc)} registro(s)):**")
+                        st.dataframe(df_nes_vinc, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("ℹ️ Nenhuma Nota de Empenho vinculada a esta NC. O saldo está 100% disponível.")
+
+                    st.markdown("---")
+                    col_rec1, col_rec2 = st.columns([2, 1])
+                    novo_rec = col_rec1.number_input("Informar Saldo Recolhido (R$):", value=float(nc_info['valor_recolhido'] or 0.0), step=10.0, format="%.2f", key=f"in_rec_{row['id']}")
+                    if col_rec2.button("Gravar Baixa", type="primary", key=f"btn_rec_{row['id']}", use_container_width=True):
+                        c.execute("UPDATE notas_credito SET valor_recolhido = ? WHERE id = ?", (novo_rec, row['id']))
+                        conn.commit()
+                        st.success("Valor recolhido gravado com sucesso!")
+                        st.rerun()
     conn.close()
 
 # ==========================================
@@ -1383,93 +1334,6 @@ elif menu_selecionado == "📋 Notas de Empenho":
             else:
                 st.info("Nenhum empenho cadastrado para exclusão.")
 
-    if st.session_state.get("ne_aberta_id"):
-        id_ne_aberta = st.session_state["ne_aberta_id"]
-        c = conn.cursor()
-        c.execute('''
-        SELECT ne.*, nc.numero_nc as NC_Origem
-        FROM notas_empenho ne
-        JOIN notas_credito nc ON ne.nc_id = nc.id
-        WHERE ne.id = ?
-        ''', (id_ne_aberta,))
-        ne_info = dict(c.fetchone())
-
-        with st.container():
-            st.markdown(f'''
-            <div style="background: linear-gradient(145deg, #243142, #18222e); border: 2px solid #C5A059; border-radius: 12px; padding: 22px; margin-bottom: 22px; box-shadow: 0 8px 24px rgba(0,0,0,0.6);">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 13px; font-weight: 900; color: #C5A059; text-transform: uppercase; letter-spacing: 0.5px;">🏢 Dossiê do Empenho & Contato da Empresa</span>
-                    <span style="font-size: 20px; font-weight: 900; color: #ffffff;">{ne_info['numero_ne']}</span>
-                </div>
-                <div style="font-size: 21px; font-weight: 800; color: #ffffff; margin-top: 8px;">{ne_info['fornecedor_nome']}</div>
-                <div style="font-size: 13.5px; color: #cbd5e1; margin-top: 4px;">CNPJ: <b style="color: #ffffff;">{ne_info['fornecedor_cnpj']}</b> | NC Origem: <b style="color: #38bdf8;">{ne_info['NC_Origem']}</b></div>
-                <hr style="border-color: rgba(255,255,255,0.15); margin: 14px 0;">
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"><span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Valor do Empenho:</span><br><b style="color: #38bdf8; font-size: 17px;">R$ {ne_info['valor_ne']:,.2f}</b></div>
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"><span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Data de Emissão:</span><br><b style="color: #ffffff; font-size: 17px;">{formatar_data_br(ne_info['data_emissao'])}</b></div>
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);"><span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Prazo Limite Entrega:</span><br><b style="color: #fbbf24; font-size: 17px;">{formatar_data_br(ne_info['data_limite'])}</b></div>
-                </div>
-                <hr style="border-color: rgba(255,255,255,0.15); margin: 14px 0;">
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 14px;">
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">📧 <b style="color: #cbd5e1;">E-mail Oficial (Receita):</b><br><a href="mailto:{ne_info['fornecedor_email']}" style="color: #60a5fa; font-weight: 700; text-decoration: underline;">{ne_info['fornecedor_email'] or 'Não informado'}</a></div>
-                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">📞 <b style="color: #cbd5e1;">Telefone de Contato:</b><br><span style="color: #4ade80; font-weight: 800; font-size: 15px;">{ne_info['fornecedor_telefone'] or 'Não informado'}</span></div>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
-            col_f_ne1, col_f_ne2 = st.columns([1, 4])
-            if col_f_ne1.button("✖ Fechar Dossiê", use_container_width=True):
-                del st.session_state["ne_aberta_id"]
-                st.rerun()
-
-            # Opção de Edição Completa da Nota de Empenho
-            with st.expander("✏️ Editar Dados desta Nota de Empenho", expanded=False):
-                with st.form(f"form_ed_ne_{id_ne_aberta}"):
-                    ed_ne_col1, ed_ne_col2, ed_ne_col3 = st.columns(3)
-                    ed_num_ne = ed_ne_col1.text_input("Número da NE:", value=ne_info['numero_ne'])
-                    ed_forn_nome = ed_ne_col2.text_input("Fornecedor (Razão Social):", value=ne_info['fornecedor_nome'])
-                    ed_forn_cnpj = ed_ne_col3.text_input("CNPJ:", value=ne_info['fornecedor_cnpj'])
-
-                    ed_ne_col4, ed_ne_col5, ed_ne_col6 = st.columns(3)
-                    ed_valor_ne = ed_ne_col4.number_input("Valor da NE (R$):", value=float(ne_info['valor_ne']), step=50.0, format="%.2f")
-                    ed_tipo_emp = ed_ne_col5.selectbox("Tipo de Empenho:", ["Ordinário", "Global", "Estimativo"], 
-                        index=["Ordinário", "Global", "Estimativo"].index(ne_info['tipo_empenho']) if ne_info['tipo_empenho'] in ["Ordinário", "Global", "Estimativo"] else 0)
-                    ed_status_ne = ed_ne_col6.selectbox("Status:", ["Aguardando Entrega", "Liquidado", "Pago"],
-                        index=["Aguardando Entrega", "Liquidado", "Pago"].index(ne_info['status']) if ne_info['status'] in ["Aguardando Entrega", "Liquidado", "Pago"] else 0)
-
-                    ed_ne_col7, ed_ne_col8, ed_ne_col9 = st.columns(3)
-                    ed_dt_emiss_ne = ed_ne_col7.date_input("Data de Emissão:", value=pd.to_datetime(ne_info['data_emissao']).date(), format="DD/MM/YYYY")
-                    ed_dt_limite_ne = ed_ne_col8.date_input("Prazo Limite Entrega:", value=pd.to_datetime(ne_info['data_limite']).date() if pd.notna(ne_info['data_limite']) else None, format="DD/MM/YYYY")
-                    ed_prazo_dias_ne = ed_ne_col9.number_input("Prazo em Dias:", value=int(ne_info['prazo_dias'] or 30), step=1)
-
-                    ed_ne_col10, ed_ne_col11 = st.columns(2)
-                    ed_email_forn = ed_ne_col10.text_input("E-mail do Fornecedor:", value=ne_info['fornecedor_email'] or "")
-                    ed_tel_forn = ed_ne_col11.text_input("Telefone do Fornecedor:", value=ne_info['fornecedor_telefone'] or "")
-
-                    ed_prorrogado = st.checkbox("Houve Prorrogação de Prazo?", value=bool(ne_info.get('prorrogado')), key=f"ed_chk_prorr_{id_ne_aberta}")
-                    ed_nova_dt = None
-                    ed_just_prorr = None
-                    if ed_prorrogado:
-                        ed_col_p1, ed_col_p2 = st.columns(2)
-                        ed_nova_dt = ed_col_p1.date_input("Nova Data Limite de Entrega:", 
-                            value=pd.to_datetime(ne_info['nova_data_limite']).date() if pd.notna(ne_info.get('nova_data_limite')) else datetime.now().date(), format="DD/MM/YYYY")
-                        ed_just_prorr = ed_col_p2.text_area("Justificativa da Prorrogação:", value=ne_info.get('justificativa_prorrogacao') or "")
-
-                    if st.form_submit_button("💾 Salvar Alterações do Empenho", type="primary"):
-                        c.execute('''
-                        UPDATE notas_empenho
-                        SET numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?, valor_ne = ?,
-                            tipo_empenho = ?, status = ?, data_emissao = ?, data_limite = ?, prazo_dias = ?,
-                            fornecedor_email = ?, fornecedor_telefone = ?, prorrogado = ?,
-                            nova_data_limite = ?, justificativa_prorrogacao = ?
-                        WHERE id = ?
-                        ''', (ed_num_ne, ed_forn_nome, ed_forn_cnpj, ed_valor_ne,
-                              ed_tipo_emp, ed_status_ne, str(ed_dt_emiss_ne), str(ed_dt_limite_ne) if ed_dt_limite_ne else None,
-                              ed_prazo_dias_ne, ed_email_forn, ed_tel_forn, 1 if ed_prorrogado else 0,
-                              str(ed_nova_dt) if ed_nova_dt else None, ed_just_prorr, id_ne_aberta))
-                        conn.commit()
-                        st.success(f"✅ Nota de Empenho {ed_num_ne} atualizada com sucesso!")
-                        st.rerun()
-
     col_t_ne, col_ord_ne, col_flt_ne = st.columns([6, 1, 1])
     with col_t_ne:
         st.markdown("### 🗂️ Painel Visual de Notas de Empenho")
@@ -1562,9 +1426,58 @@ elif menu_selecionado == "📋 Notas de Empenho":
                     </div>
                 </div>
                 ''', unsafe_allow_html=True)
-                if st.button("🏢 Ficha da Empresa & Detalhes", key=f"btn_card_ne_{row['id']}", use_container_width=True):
-                    st.session_state["ne_aberta_id"] = row['id']
-                    st.rerun()
+                with st.popover("🏢 Ficha da Empresa & Detalhes", key=f"pop_ne_{row['id']}", use_container_width=True):
+                    c = conn.cursor()
+                    c.execute('''
+                    SELECT ne.*, nc.numero_nc as NC_Origem
+                    FROM notas_empenho ne
+                    JOIN notas_credito nc ON ne.nc_id = nc.id
+                    WHERE ne.id = ?
+                    ''', (row['id'],))
+                    ne_info = dict(c.fetchone())
+
+                    st.markdown(f'''
+                    <div style="border-bottom: 2px solid #C5A059; padding-bottom: 8px; margin-bottom: 12px;">
+                        <div style="font-size: 11px; font-weight: 800; color: #C5A059; text-transform: uppercase; letter-spacing: 0.5px;">Dossiê do Empenho & Fornecedor</div>
+                        <div style="font-size: 19px; font-weight: 900; color: #ffffff;">{ne_info['numero_ne']}</div>
+                        <div style="font-size: 15px; font-weight: 700; color: #f8fafc; margin-top: 4px;">{ne_info['fornecedor_nome']}</div>
+                        <div style="font-size: 13px; color: #cbd5e1;">CNPJ: <b>{ne_info['fornecedor_cnpj']}</b> | NC Origem: <b style="color: #38bdf8;">{ne_info['NC_Origem']}</b></div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                    cne1, cne2, cne3 = st.columns(3)
+                    cne1.metric("Valor do Empenho", f"R$ {ne_info['valor_ne']:,.2f}")
+                    cne2.metric("Emissão", formatar_data_br(ne_info['data_emissao']))
+                    cne3.metric("Limite de Entrega", formatar_data_br(ne_info['data_limite']))
+
+                    st.markdown("---")
+                    st.markdown(f"📧 **E-mail Oficial:** [{ne_info['fornecedor_email']}](mailto:{ne_info['fornecedor_email']})" if ne_info['fornecedor_email'] else "📧 **E-mail Oficial:** *Não informado*")
+                    st.markdown(f"📞 **Telefone:** `{ne_info['fornecedor_telefone']}`" if ne_info['fornecedor_telefone'] else "📞 **Telefone:** *Não informado*")
+
+                    with st.expander("✏️ Editar Dados desta NE", expanded=False):
+                        with st.form(f"form_ed_ne_{row['id']}"):
+                            ed_c1, ed_c2, ed_c3 = st.columns(3)
+                            ed_num = ed_c1.text_input("Número NE:", ne_info['numero_ne'])
+                            ed_nome = ed_c2.text_input("Fornecedor:", ne_info['fornecedor_nome'])
+                            ed_cnpj = ed_c3.text_input("CNPJ:", ne_info['fornecedor_cnpj'])
+                            ed_c4, ed_c5, ed_c6 = st.columns(3)
+                            ed_val = ed_c4.number_input("Valor (R$):", value=float(ne_info['valor_ne']), step=50.0, format="%.2f")
+                            ed_tipo = ed_c5.selectbox("Tipo:", ["Ordinário", "Global", "Estimativo"], 
+                                index=["Ordinário", "Global", "Estimativo"].index(ne_info['tipo_empenho']) if ne_info['tipo_empenho'] in ["Ordinário", "Global", "Estimativo"] else 0)
+                            ed_st = ed_c6.selectbox("Status:", ["Aguardando Entrega", "Liquidado", "Pago"],
+                                index=["Aguardando Entrega", "Liquidado", "Pago"].index(ne_info['status']) if ne_info['status'] in ["Aguardando Entrega", "Liquidado", "Pago"] else 0)
+                            ed_email = st.text_input("E-mail:", value=ne_info['fornecedor_email'] or "")
+                            ed_tel = st.text_input("Telefone:", value=ne_info['fornecedor_telefone'] or "")
+                            if st.form_submit_button("Salvar Alterações", type="primary"):
+                                c.execute('''
+                                UPDATE notas_empenho
+                                SET numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?, valor_ne = ?,
+                                    tipo_empenho = ?, status = ?, fornecedor_email = ?, fornecedor_telefone = ?
+                                WHERE id = ?
+                                ''', (ed_num, ed_nome, ed_cnpj, ed_val, ed_tipo, ed_st, ed_email, ed_tel, row['id']))
+                                conn.commit()
+                                st.success("Nota de Empenho atualizada com sucesso!")
+                                st.rerun()
     conn.close()
 
 # ==========================================
@@ -2246,7 +2159,7 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
                                                    unidade_medida, quantidade_atual, estoque_minimo, estoque_ideal, valor_unitario_estimado)
                         VALUES (?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, ?)
                         ''', (user['om_id'], nome_material_final.strip(), cat_escolhida, tipo_emb_sel, fator_emb,
-                              unidade_base, saldo_novo, val_unit_estimado))
+                              unidade_base, saldo_novo, val_unit_base))
                         id_item = cur.lastrowid
 
                     cur.execute('''
