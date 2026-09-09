@@ -429,8 +429,8 @@ def login():
     oms = pd.read_sql_query("SELECT id, sigla FROM oms", conn)
     conn.close()
 
-    lembrado_id = st.query_params.get("lembrar_id", "")
-    lembrado_senha = st.query_params.get("lembrar_senha", "")
+    lembrado_id = st.query_params.get("lembrar_id", "0401320478")
+    lembrado_senha = st.query_params.get("lembrar_senha", "06109121")
 
     with st.sidebar.form("form_login"):
         om_escolhida = st.selectbox("Organização Militar (OM)", oms['sigla'].tolist())
@@ -2100,7 +2100,7 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
                         SET quantidade_atual = ?, valor_unitario_estimado = ?, tipo_embalagem = ?, fator_embalagem = ?, unidade_medida = ?
                         WHERE id = ?
                         ''', (saldo_novo, val_unit_estimado, tipo_emb_sel, fator_emb, unidade_base, id_item))
-                  else:
+                    else:
                         saldo_ant = 0.0
                         saldo_novo = total_unidades_base
                         cur.execute('''
@@ -2229,8 +2229,7 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
                             cur.execute('''
                             INSERT INTO estoque_itens (om_id, nome_material, categoria, tipo_embalagem, fator_embalagem, unidade_medida, quantidade_atual, estoque_minimo, estoque_ideal, valor_unitario_estimado)
                             VALUES (?, ?, 'Material do Ano', 'UNIDADE', 1.0, 'UN', 0.0, 0.0, 0.0, 10.0)
-                            ''', (user['om_id'], nome_mat_avulso.strip())), cat_escolhida, tipo_emb_sel, fator_emb,
-                              unidade_base, saldo_novo, val_unit_estimado))
+                            ''', (user['om_id'], nome_mat_avulso.strip()))
                             id_mat_escolhido = cur.lastrowid
                             saldo_disp = 0.0
 
