@@ -2227,9 +2227,11 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
 
                         if id_mat_escolhido is None:
                             cur.execute('''
-                            INSERT INTO estoque_itens (om_id, nome_material, categoria, tipo_embalagem, fator_embalagem, unidade_medida, quantidade_atual, valor_unitario_estimado)
-                            VALUES (?, ?, 'Material do Ano', 'UNIDADE', 1.0, 'UN', 0.0, 10.0)
-                            ''', (user['om_id'], nome_mat_avulso.strip()))
+                            INSERT INTO estoque_itens (om_id, nome_material, categoria, tipo_embalagem, fator_embalagem, 
+                                                   unidade_medida, quantidade_atual, estoque_minimo, estoque_ideal, valor_unitario_estimado)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, ?)
+                        ''', (user['om_id'], nome_material_final.strip(), cat_escolhida, tipo_emb_sel, fator_emb,
+                              unidade_base, saldo_novo, val_unit_estimado))
                             id_mat_escolhido = cur.lastrowid
                             saldo_disp = 0.0
 
