@@ -985,7 +985,7 @@ elif menu_selecionado == "📑 Notas de Crédito":
     st.title("📑 Notas de Crédito da OM")
     conn = get_connection()
 
-    col_nc_top1, col_nc_top2 = st.columns(2)
+    col_nc_top1, col_nc_top2, col_nc_top3 = st.columns(3)
     with col_nc_top1:
         with st.expander("➕ Cadastrar Nova Nota de Crédito", expanded=False):
             with st.form("form_nc_rapido"):
@@ -1020,6 +1020,58 @@ elif menu_selecionado == "📑 Notas de Crédito":
                     st.rerun()
 
     with col_nc_top2:
+        with st.expander("✏️ Editar Nota de Crédito", expanded=False):
+            df_ncs_edit_top = pd.read_sql_query(f"SELECT * FROM notas_credito WHERE om_id = {user['om_id']} ORDER BY numero_nc", conn)
+            if not df_ncs_edit_top.empty:
+                dict_edit_nc = {f"{r['numero_nc']} - R$ {r['valor_total']:,.2f} | {r['finalidade'][:35]}...": r['id'] for _, r in df_ncs_edit_top.iterrows()}
+                sel_nc_ed = st.selectbox("Selecione a NC para editar:", list(dict_edit_nc.keys()), key="sel_nc_to_edit_top")
+                id_nc_to_edit = dict_edit_nc[sel_nc_ed]
+                nc_dados_atual = dict(df_ncs_edit_top[df_ncs_edit_top['id'] == id_nc_to_edit].iloc[0])
+
+                with st.form(f"form_ed_nc_top_{id_nc_to_edit}"):
+                    ec1, ec2, ec3 = st.columns(3)
+                    ed_num_nc = ec1.text_input("Número da NC:", value=nc_dados_atual['numero_nc'])
+                    ed_ug_emit = ec2.text_input("UG Emitente:", value=nc_dados_atual['ug_emitente'] or "")
+                    ed_ug_fav = ec3.text_input("UG Favorecida:", value=nc_dados_atual['ug_favorecida'] or "")
+
+                    ec4, ec5, ec6 = st.columns(3)
+                    dt_em_val = pd.to_datetime(nc_dados_atual['data_emissao']).date() if pd.notna(nc_dados_atual['data_emissao']) else datetime.now().date()
+                    ed_dt_emissao = ec4.date_input("Data de Emissão:", value=dt_em_val, format="DD/MM/YYYY")
+
+                    dt_lim_val = pd.to_datetime(nc_dados_atual['data_limite_empenho']).date() if pd.notna(nc_dados_atual['data_limite_empenho']) else (datetime.now().date() + timedelta(days=30))
+                    ed_dt_limite = ec5.date_input("Data Limite do Empenho:", value=dt_lim_val, format="DD/MM/YYYY")
+
+                    ed_val_total = ec6.number_input("Valor Total (R$):", value=float(nc_dados_atual['valor_total']), step=100.0, format="%.2f")
+
+                    ec7, ec8, ec9 = st.columns(3)
+                    ed_nd = ec7.text_input("Natureza de Despesa (ND):", value=nc_dados_atual['natureza_despesa'] or "")
+                    ed_pi = ec8.text_input("Plano Interno (PI):", value=nc_dados_atual['pi'] or "")
+                    enq_lista = ["DISCRICIONÁRIA", "ALIMENTAÇÃO", "FARDAMENTO", "SAÚDE", "ENGENHARIA", "OUTRO"]
+                    idx_enq = enq_lista.index(nc_dados_atual['enquadramento']) if nc_dados_atual['enquadramento'] in enq_lista else 0
+                    ed_enq = ec9.selectbox("Enquadramento:", enq_lista, index=idx_enq)
+
+                    ed_fin = st.text_input("Finalidade / Objeto Completo:", value=nc_dados_atual['finalidade'] or "")
+                    ed_rec = st.number_input("Valor Recolhido / Devolvido (R$):", value=float(nc_dados_atual['valor_recolhido'] or 0.0), step=10.0, format="%.2f")
+                    ed_obs = st.text_area("Observações:", value=nc_dados_atual['observacao'] or "")
+
+                    if st.form_submit_button("💾 Salvar Todas as Alterações da NC", type="primary"):
+                        c = conn.cursor()
+                        c.execute('''
+                        UPDATE notas_credito
+                        SET numero_nc = ?, finalidade = ?, valor_total = ?, valor_recolhido = ?,
+                            data_emissao = ?, data_limite_empenho = ?, enquadramento = ?,
+                            natureza_despesa = ?, pi = ?, ug_emitente = ?, ug_favorecida = ?, observacao = ?
+                        WHERE id = ?
+                        ''', (ed_num_nc.strip(), ed_fin.strip(), ed_val_total, ed_rec,
+                              str(ed_dt_emissao), str(ed_dt_limite), ed_enq, ed_nd.strip(),
+                              ed_pi.strip(), ed_ug_emit.strip(), ed_ug_fav.strip(), ed_obs.strip(), id_nc_to_edit))
+                        conn.commit()
+                        st.success(f"✅ Nota de Crédito {ed_num_nc} atualizada com sucesso!")
+                        st.rerun()
+            else:
+                st.info("Nenhuma NC cadastrada para editar.")
+
+    with col_nc_top3:
         with st.expander("🗑️ Excluir Nota de Crédito", expanded=False):
             df_ncs_del = pd.read_sql_query(f"SELECT id, numero_nc, valor_total, finalidade FROM notas_credito WHERE om_id = {user['om_id']}", conn)
             if not df_ncs_del.empty:
@@ -1208,6 +1260,44 @@ elif menu_selecionado == "📑 Notas de Crédito":
                     else:
                         st.info("ℹ️ Nenhuma Nota de Empenho vinculada a esta NC. O saldo está 100% disponível.")
 
+                    with st.expander("✏️ Editar Todos os Dados desta Nota de Crédito", expanded=False):
+                        with st.form(f"form_ed_nc_card_{row['id']}"):
+                            dc1, dc2 = st.columns(2)
+                            d_num_nc = dc1.text_input("Número da NC:", value=nc_info['numero_nc'], key=f"d_num_{row['id']}")
+                            d_val_tot = dc2.number_input("Valor Total (R$):", value=float(nc_info['valor_total']), step=100.0, format="%.2f", key=f"d_val_{row['id']}")
+
+                            d_fin = st.text_input("Finalidade / Objeto:", value=nc_info['finalidade'] or "", key=f"d_fin_{row['id']}")
+
+                            dc3, dc4, dc5 = st.columns(3)
+                            d_dt_em = pd.to_datetime(nc_info['data_emissao']).date() if pd.notna(nc_info['data_emissao']) else datetime.now().date()
+                            d_emissao = dc3.date_input("Data de Emissão:", value=d_dt_em, format="DD/MM/YYYY", key=f"d_em_{row['id']}")
+                            
+                            d_dt_lim = pd.to_datetime(nc_info['data_limite_empenho']).date() if pd.notna(nc_info['data_limite_empenho']) else (datetime.now().date() + timedelta(days=30))
+                            d_limite = dc4.date_input("Data Limite Empenho:", value=d_dt_lim, format="DD/MM/YYYY", key=f"d_lim_{row['id']}")
+
+                            d_enq_opts = ["DISCRICIONÁRIA", "ALIMENTAÇÃO", "FARDAMENTO", "SAÚDE", "ENGENHARIA", "OUTRO"]
+                            d_enq_idx = d_enq_opts.index(nc_info['enquadramento']) if nc_info['enquadramento'] in d_enq_opts else 0
+                            d_enq = dc5.selectbox("Enquadramento:", d_enq_opts, index=d_enq_idx, key=f"d_enq_{row['id']}")
+
+                            dc6, dc7 = st.columns(2)
+                            d_nd = dc6.text_input("Natureza da Despesa (ND):", value=nc_info['natureza_despesa'] or "", key=f"d_nd_{row['id']}")
+                            d_pi = dc7.text_input("Plano Interno (PI):", value=nc_info['pi'] or "", key=f"d_pi_{row['id']}")
+
+                            d_rec = st.number_input("Valor de Saldo Recolhido (R$):", value=float(nc_info['valor_recolhido'] or 0.0), step=10.0, format="%.2f", key=f"d_rec_{row['id']}")
+
+                            if st.form_submit_button("💾 Salvar Alterações desta NC", type="primary"):
+                                cur = conn.cursor()
+                                cur.execute('''
+                                UPDATE notas_credito
+                                SET numero_nc = ?, finalidade = ?, valor_total = ?, valor_recolhido = ?,
+                                    data_emissao = ?, data_limite_empenho = ?, enquadramento = ?,
+                                    natureza_despesa = ?, pi = ?
+                                WHERE id = ?
+                                ''', (d_num_nc.strip(), d_fin.strip(), d_val_tot, d_rec, str(d_emissao), str(d_limite), d_enq, d_nd.strip(), d_pi.strip(), row['id']))
+                                conn.commit()
+                                st.success(f"✅ NC {d_num_nc} atualizada!")
+                                st.rerun()
+
                     st.markdown("---")
                     col_rec1, col_rec2 = st.columns([2, 1])
                     novo_rec = col_rec1.number_input("Informar Saldo Recolhido (R$):", value=float(nc_info['valor_recolhido'] or 0.0), step=10.0, format="%.2f", key=f"in_rec_{row['id']}")
@@ -1225,7 +1315,7 @@ elif menu_selecionado == "📋 Notas de Empenho":
     st.title("📋 Notas de Empenho da OM")
     conn = get_connection()
 
-    col_ne_top1, col_ne_top2 = st.columns(2)
+    col_ne_top1, col_ne_top2, col_ne_top3 = st.columns(3)
 
     with col_ne_top1:
         with st.expander("➕ Cadastrar Nova Nota de Empenho", expanded=False):
@@ -1319,6 +1409,82 @@ elif menu_selecionado == "📋 Notas de Empenho":
                             st.rerun()
 
     with col_ne_top2:
+        with st.expander("✏️ Editar Nota de Empenho", expanded=False):
+            df_nes_all_top = pd.read_sql_query(f"SELECT * FROM notas_empenho WHERE om_id = {user['om_id']} ORDER BY id DESC", conn)
+            if not df_nes_all_top.empty:
+                dict_edit_ne = {f"{r['numero_ne']} - {r['fornecedor_nome']} (R$ {r['valor_ne']:,.2f})": r['id'] for _, r in df_nes_all_top.iterrows()}
+                sel_ne_ed = st.selectbox("Selecione a NE para editar:", list(dict_edit_ne.keys()), key="sel_ne_to_edit_top")
+                id_ne_to_edit = dict_edit_ne[sel_ne_ed]
+                ne_dados_atual = dict(df_nes_all_top[df_nes_all_top['id'] == id_ne_to_edit].iloc[0])
+
+                with st.form(f"form_ed_ne_top_{id_ne_to_edit}"):
+                    df_ncs_vinc_opts = pd.read_sql_query(f"SELECT id, numero_nc FROM notas_credito WHERE om_id = {user['om_id']}", conn)
+                    dict_ncs_v = {r['numero_nc']: r['id'] for _, r in df_ncs_vinc_opts.iterrows()}
+                    nc_atual_num = next((k for k, v in dict_ncs_v.items() if v == ne_dados_atual['nc_id']), list(dict_ncs_v.keys())[0] if dict_ncs_v else "")
+                    idx_nc_v = list(dict_ncs_v.keys()).index(nc_atual_num) if nc_atual_num in dict_ncs_v else 0
+                    
+                    ed_nc_vinculada = st.selectbox("Nota de Crédito Vinculada:", list(dict_ncs_v.keys()), index=idx_nc_v)
+                    novo_nc_id = dict_ncs_v[ed_nc_vinculada]
+
+                    c_ne1, c_ne2, c_ne3 = st.columns(3)
+                    ed_num_ne = c_ne1.text_input("Número do Empenho (NE):", value=ne_dados_atual['numero_ne'])
+                    ed_forn_nome = c_ne2.text_input("Razão Social do Fornecedor:", value=ne_dados_atual['fornecedor_nome'])
+                    ed_forn_cnpj = c_ne3.text_input("CNPJ do Fornecedor:", value=ne_dados_atual['fornecedor_cnpj'])
+
+                    c_ne4, c_ne5, c_ne6 = st.columns(3)
+                    ed_val_ne = c_ne4.number_input("Valor da NE (R$):", value=float(ne_dados_atual['valor_ne']), step=50.0, format="%.2f")
+                    tipos_emp_lista = ["Ordinário", "Global", "Estimativo"]
+                    idx_tipo_e = tipos_emp_lista.index(ne_dados_atual['tipo_empenho']) if ne_dados_atual['tipo_empenho'] in tipos_emp_lista else 0
+                    ed_tipo_emp = c_ne5.selectbox("Tipo de Empenho:", tipos_emp_lista, index=idx_tipo_e)
+                    status_lista = ["Aguardando Entrega", "Liquidado", "Pago"]
+                    idx_st_e = status_lista.index(ne_dados_atual['status']) if ne_dados_atual['status'] in status_lista else 0
+                    ed_status_ne = c_ne6.selectbox("Status:", status_lista, index=idx_st_e)
+
+                    c_ne7, c_ne8, c_ne9 = st.columns(3)
+                    dt_em_ne = pd.to_datetime(ne_dados_atual['data_emissao']).date() if pd.notna(ne_dados_atual['data_emissao']) else datetime.now().date()
+                    ed_dt_emissao_ne = c_ne7.date_input("Data de Emissão da NE:", value=dt_em_ne, format="DD/MM/YYYY")
+
+                    dt_env_ne = pd.to_datetime(ne_dados_atual['data_envio_empresa']).date() if pd.notna(ne_dados_atual['data_envio_empresa']) else datetime.now().date()
+                    ed_dt_envio_ne = c_ne8.date_input("Data de Envio (Marco Zero):", value=dt_env_ne, format="DD/MM/YYYY")
+
+                    ed_prazo_dias = c_ne9.number_input("Prazo de Entrega (Dias):", value=int(ne_dados_atual['prazo_dias'] or 30), step=5)
+                    nova_data_calc = ed_dt_envio_ne + timedelta(days=ed_prazo_dias)
+
+                    c_ne10, c_ne11 = st.columns(2)
+                    ed_forn_email = c_ne10.text_input("E-mail Oficial da Empresa:", value=ne_dados_atual['fornecedor_email'] or "")
+                    ed_forn_tel = c_ne11.text_input("Telefone da Empresa:", value=ne_dados_atual['fornecedor_telefone'] or "")
+
+                    ed_prorrogado = st.checkbox("Houve Prorrogação de Prazo?", value=bool(ne_dados_atual['prorrogado']), key=f"chk_ed_prorr_top_{id_ne_to_edit}")
+                    ed_nova_data_limite = None
+                    ed_just_prorr = None
+                    if ed_prorrogado:
+                        cp1, cp2 = st.columns(2)
+                        dt_prorr_val = pd.to_datetime(ne_dados_atual['nova_data_limite']).date() if pd.notna(ne_dados_atual['nova_data_limite']) else (nova_data_calc + timedelta(days=15))
+                        ed_nova_data_limite = cp1.date_input("Nova Data Limite de Entrega:", value=dt_prorr_val, format="DD/MM/YYYY")
+                        ed_just_prorr = cp2.text_area("Justificativa da Prorrogação:", value=ne_dados_atual['justificativa_prorrogacao'] or "")
+
+                    if st.form_submit_button("💾 Salvar Todas as Alterações da NE", type="primary"):
+                        c = conn.cursor()
+                        c.execute('''
+                        UPDATE notas_empenho
+                        SET nc_id = ?, numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?,
+                            valor_ne = ?, tipo_empenho = ?, status = ?, data_emissao = ?,
+                            data_envio_empresa = ?, prazo_dias = ?, data_limite = ?,
+                            prorrogado = ?, nova_data_limite = ?, justificativa_prorrogacao = ?,
+                            fornecedor_email = ?, fornecedor_telefone = ?
+                        WHERE id = ?
+                        ''', (novo_nc_id, ed_num_ne.strip(), ed_forn_nome.strip(), ed_forn_cnpj.strip(),
+                              ed_val_ne, ed_tipo_emp, ed_status_ne, str(ed_dt_emissao_ne), str(ed_dt_envio_ne),
+                              ed_prazo_dias, str(nova_data_calc), 1 if ed_prorrogado else 0,
+                              str(ed_nova_data_limite) if ed_nova_data_limite else None,
+                              ed_just_prorr, ed_forn_email.strip(), ed_forn_tel.strip(), id_ne_to_edit))
+                        conn.commit()
+                        st.success(f"✅ Nota de Empenho {ed_num_ne} atualizada com sucesso!")
+                        st.rerun()
+            else:
+                st.info("Nenhuma NE cadastrada para editar.")
+
+    with col_ne_top3:
         with st.expander("🗑️ Excluir Nota de Empenho", expanded=False):
             df_nes_para_del = pd.read_sql_query(f'''
             SELECT id, numero_ne, valor_ne, fornecedor_nome FROM notas_empenho 
@@ -1481,29 +1647,64 @@ elif menu_selecionado == "📋 Notas de Empenho":
                     st.markdown(f"📧 **E-mail Oficial:** [{ne_info['fornecedor_email']}](mailto:{ne_info['fornecedor_email']})" if ne_info['fornecedor_email'] else "📧 **E-mail Oficial:** *Não informado*")
                     st.markdown(f"📞 **Telefone:** `{ne_info['fornecedor_telefone']}`" if ne_info['fornecedor_telefone'] else "📞 **Telefone:** *Não informado*")
 
-                    with st.expander("✏️ Editar Dados desta NE", expanded=False):
-                        with st.form(f"form_ed_ne_{row['id']}"):
+                    with st.expander("✏️ Editar Todos os Dados desta NE", expanded=False):
+                        with st.form(f"form_ed_ne_card_{row['id']}"):
+                            df_ncs_vinc_card = pd.read_sql_query(f"SELECT id, numero_nc FROM notas_credito WHERE om_id = {user['om_id']}", conn)
+                            dict_ncs_card = {r['numero_nc']: r['id'] for _, r in df_ncs_vinc_card.iterrows()}
+                            nc_card_atual_num = next((k for k, v in dict_ncs_card.items() if v == ne_info['nc_id']), list(dict_ncs_card.keys())[0] if dict_ncs_card else "")
+                            idx_nc_c = list(dict_ncs_card.keys()).index(nc_card_atual_num) if nc_card_atual_num in dict_ncs_card else 0
+                            
+                            c_ed_nc = st.selectbox("Vincular à Nota de Crédito:", list(dict_ncs_card.keys()), index=idx_nc_c, key=f"c_ed_nc_{row['id']}")
+                            novo_nc_id_card = dict_ncs_card[c_ed_nc]
+
                             ed_c1, ed_c2, ed_c3 = st.columns(3)
-                            ed_num = ed_c1.text_input("Número NE:", ne_info['numero_ne'])
-                            ed_nome = ed_c2.text_input("Fornecedor:", ne_info['fornecedor_nome'])
-                            ed_cnpj = ed_c3.text_input("CNPJ:", ne_info['fornecedor_cnpj'])
+                            ed_num = ed_c1.text_input("Número NE:", value=ne_info['numero_ne'], key=f"ed_num_{row['id']}")
+                            ed_nome = ed_c2.text_input("Fornecedor:", value=ne_info['fornecedor_nome'], key=f"ed_nome_{row['id']}")
+                            ed_cnpj = ed_c3.text_input("CNPJ:", value=ne_info['fornecedor_cnpj'], key=f"ed_cnpj_{row['id']}")
+
                             ed_c4, ed_c5, ed_c6 = st.columns(3)
-                            ed_val = ed_c4.number_input("Valor (R$):", value=float(ne_info['valor_ne']), step=50.0, format="%.2f")
-                            ed_tipo = ed_c5.selectbox("Tipo:", ["Ordinário", "Global", "Estimativo"], 
-                                index=["Ordinário", "Global", "Estimativo"].index(ne_info['tipo_empenho']) if ne_info['tipo_empenho'] in ["Ordinário", "Global", "Estimativo"] else 0)
-                            ed_st = ed_c6.selectbox("Status:", ["Aguardando Entrega", "Liquidado", "Pago"],
-                                index=["Aguardando Entrega", "Liquidado", "Pago"].index(ne_info['status']) if ne_info['status'] in ["Aguardando Entrega", "Liquidado", "Pago"] else 0)
-                            ed_email = st.text_input("E-mail:", value=ne_info['fornecedor_email'] or "")
-                            ed_tel = st.text_input("Telefone:", value=ne_info['fornecedor_telefone'] or "")
-                            if st.form_submit_button("Salvar Alterações", type="primary"):
+                            ed_val = ed_c4.number_input("Valor (R$):", value=float(ne_info['valor_ne']), step=50.0, format="%.2f", key=f"ed_val_{row['id']}")
+                            tipos_e = ["Ordinário", "Global", "Estimativo"]
+                            ed_tipo = ed_c5.selectbox("Tipo:", tipos_e, index=tipos_e.index(ne_info['tipo_empenho']) if ne_info['tipo_empenho'] in tipos_e else 0, key=f"ed_tipo_{row['id']}")
+                            sts_e = ["Aguardando Entrega", "Liquidado", "Pago"]
+                            ed_st = ed_c6.selectbox("Status:", sts_e, index=sts_e.index(ne_info['status']) if ne_info['status'] in sts_e else 0, key=f"ed_st_{row['id']}")
+
+                            ed_c7, ed_c8, ed_c9 = st.columns(3)
+                            dt_em_c = pd.to_datetime(ne_info['data_emissao']).date() if pd.notna(ne_info['data_emissao']) else datetime.now().date()
+                            ed_dt_em = ed_c7.date_input("Data de Emissão:", value=dt_em_c, format="DD/MM/YYYY", key=f"ed_dtem_{row['id']}")
+                            
+                            dt_env_c = pd.to_datetime(ne_info['data_envio_empresa']).date() if pd.notna(ne_info['data_envio_empresa']) else datetime.now().date()
+                            ed_dt_env = ed_c8.date_input("Data Envio (Marco Zero):", value=dt_env_c, format="DD/MM/YYYY", key=f"ed_dtenv_{row['id']}")
+                            
+                            ed_pz = ed_c9.number_input("Prazo de Entrega (Dias):", value=int(ne_info['prazo_dias'] or 30), step=5, key=f"ed_pz_{row['id']}")
+                            calc_lim_card = ed_dt_env + timedelta(days=ed_pz)
+
+                            ed_email = st.text_input("E-mail Oficial:", value=ne_info['fornecedor_email'] or "", key=f"ed_em_{row['id']}")
+                            ed_tel = st.text_input("Telefone de Contato:", value=ne_info['fornecedor_telefone'] or "", key=f"ed_tl_{row['id']}")
+
+                            ed_prorr_c = st.checkbox("Prorrogação de Prazo Solicitada?", value=bool(ne_info['prorrogado']), key=f"chk_prorr_card_{row['id']}")
+                            nova_dt_c = None
+                            just_c = None
+                            if ed_prorr_c:
+                                cp1, cp2 = st.columns(2)
+                                dt_prorr_def = pd.to_datetime(ne_info['nova_data_limite']).date() if pd.notna(ne_info['nova_data_limite']) else (calc_lim_card + timedelta(days=15))
+                                nova_dt_c = cp1.date_input("Nova Data Limite:", value=dt_prorr_def, format="DD/MM/YYYY", key=f"novadt_{row['id']}")
+                                just_c = cp2.text_area("Justificativa:", value=ne_info['justificativa_prorrogacao'] or "", key=f"just_{row['id']}")
+
+                            if st.form_submit_button("💾 Salvar Todas as Alterações da NE", type="primary"):
                                 c.execute('''
                                 UPDATE notas_empenho
-                                SET numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?, valor_ne = ?,
-                                    tipo_empenho = ?, status = ?, fornecedor_email = ?, fornecedor_telefone = ?
+                                SET nc_id = ?, numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?, valor_ne = ?,
+                                    tipo_empenho = ?, status = ?, data_emissao = ?, data_envio_empresa = ?,
+                                    prazo_dias = ?, data_limite = ?, prorrogado = ?, nova_data_limite = ?,
+                                    justificativa_prorrogacao = ?, fornecedor_email = ?, fornecedor_telefone = ?
                                 WHERE id = ?
-                                ''', (ed_num, ed_nome, ed_cnpj, ed_val, ed_tipo, ed_st, ed_email, ed_tel, row['id']))
+                                ''', (novo_nc_id_card, ed_num.strip(), ed_nome.strip(), ed_cnpj.strip(), ed_val,
+                                      ed_tipo, ed_st, str(ed_dt_em), str(ed_dt_env), ed_pz, str(calc_lim_card),
+                                      1 if ed_prorr_c else 0, str(nova_dt_c) if nova_dt_c else None, just_c,
+                                      ed_email.strip(), ed_tel.strip(), row['id']))
                                 conn.commit()
-                                st.success("Nota de Empenho atualizada com sucesso!")
+                                st.success("✅ Nota de Empenho atualizada com sucesso!")
                                 st.rerun()
     conn.close()
 
