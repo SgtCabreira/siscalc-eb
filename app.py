@@ -1332,9 +1332,59 @@ elif menu_selecionado == "📋 Notas de Empenho":
                 </div>
             </div>
             ''', unsafe_allow_html=True)
-            if st.button("✖ Fechar Dossiê da Empresa"):
+            col_f_ne1, col_f_ne2 = st.columns([1, 4])
+            if col_f_ne1.button("✖ Fechar Dossiê", use_container_width=True):
                 del st.session_state["ne_aberta_id"]
                 st.rerun()
+
+            # Opção de Edição Completa da Nota de Empenho
+            with st.expander("✏️ Editar Dados desta Nota de Empenho", expanded=False):
+                with st.form(f"form_ed_ne_{id_ne_aberta}"):
+                    ed_ne_col1, ed_ne_col2, ed_ne_col3 = st.columns(3)
+                    ed_num_ne = ed_ne_col1.text_input("Número da NE:", value=ne_info['numero_ne'])
+                    ed_forn_nome = ed_ne_col2.text_input("Fornecedor (Razão Social):", value=ne_info['fornecedor_nome'])
+                    ed_forn_cnpj = ed_ne_col3.text_input("CNPJ:", value=ne_info['fornecedor_cnpj'])
+
+                    ed_ne_col4, ed_ne_col5, ed_ne_col6 = st.columns(3)
+                    ed_valor_ne = ed_ne_col4.number_input("Valor da NE (R$):", value=float(ne_info['valor_ne']), step=50.0, format="%.2f")
+                    ed_tipo_emp = ed_ne_col5.selectbox("Tipo de Empenho:", ["Ordinário", "Global", "Estimativo"], 
+                        index=["Ordinário", "Global", "Estimativo"].index(ne_info['tipo_empenho']) if ne_info['tipo_empenho'] in ["Ordinário", "Global", "Estimativo"] else 0)
+                    ed_status_ne = ed_ne_col6.selectbox("Status:", ["Aguardando Entrega", "Liquidado", "Pago"],
+                        index=["Aguardando Entrega", "Liquidado", "Pago"].index(ne_info['status']) if ne_info['status'] in ["Aguardando Entrega", "Liquidado", "Pago"] else 0)
+
+                    ed_ne_col7, ed_ne_col8, ed_ne_col9 = st.columns(3)
+                    ed_dt_emiss_ne = ed_ne_col7.date_input("Data de Emissão:", value=pd.to_datetime(ne_info['data_emissao']).date(), format="DD/MM/YYYY")
+                    ed_dt_limite_ne = ed_ne_col8.date_input("Prazo Limite Entrega:", value=pd.to_datetime(ne_info['data_limite']).date() if pd.notna(ne_info['data_limite']) else None, format="DD/MM/YYYY")
+                    ed_prazo_dias_ne = ed_ne_col9.number_input("Prazo em Dias:", value=int(ne_info['prazo_dias'] or 30), step=1)
+
+                    ed_ne_col10, ed_ne_col11 = st.columns(2)
+                    ed_email_forn = ed_ne_col10.text_input("E-mail do Fornecedor:", value=ne_info['fornecedor_email'] or "")
+                    ed_tel_forn = ed_ne_col11.text_input("Telefone do Fornecedor:", value=ne_info['fornecedor_telefone'] or "")
+
+                    ed_prorrogado = st.checkbox("Houve Prorrogação de Prazo?", value=bool(ne_info.get('prorrogado')), key=f"ed_chk_prorr_{id_ne_aberta}")
+                    ed_nova_dt = None
+                    ed_just_prorr = None
+                    if ed_prorrogado:
+                        ed_col_p1, ed_col_p2 = st.columns(2)
+                        ed_nova_dt = ed_col_p1.date_input("Nova Data Limite de Entrega:", 
+                            value=pd.to_datetime(ne_info['nova_data_limite']).date() if pd.notna(ne_info.get('nova_data_limite')) else datetime.now().date(), format="DD/MM/YYYY")
+                        ed_just_prorr = ed_col_p2.text_area("Justificativa da Prorrogação:", value=ne_info.get('justificativa_prorrogacao') or "")
+
+                    if st.form_submit_button("💾 Salvar Alterações do Empenho", type="primary"):
+                        c.execute('''
+                        UPDATE notas_empenho
+                        SET numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?, valor_ne = ?,
+                            tipo_empenho = ?, status = ?, data_emissao = ?, data_limite = ?, prazo_dias = ?,
+                            fornecedor_email = ?, fornecedor_telefone = ?, prorrogado = ?,
+                            nova_data_limite = ?, justificativa_prorrogacao = ?
+                        WHERE id = ?
+                        ''', (ed_num_ne, ed_forn_nome, ed_forn_cnpj, ed_valor_ne,
+                              ed_tipo_emp, ed_status_ne, str(ed_dt_emiss_ne), str(ed_dt_limite_ne) if ed_dt_limite_ne else None,
+                              ed_prazo_dias_ne, ed_email_forn, ed_tel_forn, 1 if ed_prorrogado else 0,
+                              str(ed_nova_dt) if ed_nova_dt else None, ed_just_prorr, id_ne_aberta))
+                        conn.commit()
+                        st.success(f"✅ Nota de Empenho {ed_num_ne} atualizada com sucesso!")
+                        st.rerun()
 
     col_t_ne, col_ord_ne, col_flt_ne = st.columns([6, 1, 1])
     with col_t_ne:
@@ -2010,8 +2060,8 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
                             </div>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 12px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px;">
-                            <span style="color: #94a3b8;">Unitário: R$ {r['valor_unitario_estimado']:,.2f}</span>
-                            <span style="color: #fff; font-weight: bold;">Subtotal: R$ {r['valor_total_item']:,.2f}</span>
+                            <span style="color: #94a3b8;">Base: R$ {r['valor_unitario_estimado']:,.2f}/{r['unidade_medida']} ({f"R$ {r['valor_unitario_estimado']*fator:,.2f}/{r['tipo_embalagem']}" if fator > 1 else ""})</span>
+                            <span style="color: #4ade80; font-weight: bold;">Subtotal: R$ {r['valor_total_item']:,.2f}</span>
                         </div>
                     </div>
                     ''', unsafe_allow_html=True)
@@ -2076,8 +2126,12 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
             col_q_ent1, col_q_ent2, col_q_ent3 = st.columns(3)
             qtd_embalagens_ent = col_q_ent1.number_input(f"Quantidade de {tipo_emb_sel}(S) Recebidos:", min_value=1.0, value=1.0, step=1.0)
             total_unidades_base = qtd_embalagens_ent * fator_emb
-            col_q_ent2.markdown(f"<div style='padding-top: 25px; font-weight: bold; color: #22c55e;'>= {total_unidades_base:.0f} {unidade_base} no total</div>", unsafe_allow_html=True)
-            val_unit_estimado = col_q_ent3.number_input(f"Preço Unitário por {unidade_base} (R$):", min_value=0.01, value=10.0, step=1.0, format="%.2f")
+            col_q_ent2.markdown(f"<div style='padding-top: 25px; font-weight: bold; color: #4ade80;'>= {total_unidades_base:.0f} {unidade_base} no total</div>", unsafe_allow_html=True)
+            
+            preco_embalagem_fechada = col_q_ent3.number_input(f"Preço da Embalagem Fechada (R$ por {tipo_emb_sel}):", min_value=0.01, value=10.0, step=1.0, format="%.2f")
+            # O preço unitário base (por Litro ou Kg) é o preço da embalagem dividido pelo conteúdo
+            val_unit_base = preco_embalagem_fechada / fator_emb if fator_emb > 0 else preco_embalagem_fechada
+            st.caption(f"💡 Preço da Embalagem: **R$ {preco_embalagem_fechada:,.2f}** por {tipo_emb_sel} (equivale a **R$ {val_unit_base:,.2f}** por {unidade_base}) | Valor Total do Lote: **R$ {(qtd_embalagens_ent * preco_embalagem_fechada):,.2f}**")
 
             col_dt_e, col_obs_e = st.columns(2)
             data_recebimento = col_dt_e.date_input("Data da Entrada:", value=datetime.now(), format="DD/MM/YYYY")
@@ -2099,7 +2153,7 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
                         UPDATE estoque_itens 
                         SET quantidade_atual = ?, valor_unitario_estimado = ?, tipo_embalagem = ?, fator_embalagem = ?, unidade_medida = ?
                         WHERE id = ?
-                        ''', (saldo_novo, val_unit_estimado, tipo_emb_sel, fator_emb, unidade_base, id_item))
+                        ''', (saldo_novo, val_unit_base, tipo_emb_sel, fator_emb, unidade_base, id_item))
                     else:
                         saldo_ant = 0.0
                         saldo_novo = total_unidades_base
