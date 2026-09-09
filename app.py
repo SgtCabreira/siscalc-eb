@@ -71,6 +71,18 @@ def gerar_pdf_tabela_seguro(titulo, df_dados):
     except Exception:
         return None
 
+
+def exportar_excel_seguro(df_dados, nome_aba="Dados"):
+    try:
+        import openpyxl
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            df_dados.to_excel(writer, index=False, sheet_name=nome_aba[:31])
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
 def get_connection():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -417,8 +429,8 @@ def login():
     oms = pd.read_sql_query("SELECT id, sigla FROM oms", conn)
     conn.close()
 
-    lembrado_id = st.query_params.get("lembrar_id", "")
-    lembrado_senha = st.query_params.get("lembrar_senha", "")
+    lembrado_id = st.query_params.get("lembrar_id", "0401320478")
+    lembrado_senha = st.query_params.get("lembrar_senha", "06109121")
 
     with st.sidebar.form("form_login"):
         om_escolhida = st.selectbox("Organização Militar (OM)", oms['sigla'].tolist())
@@ -2269,11 +2281,9 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
                 with col_dl_mv1:
                     st.download_button("📥 Baixar CSV", data=df_exib_mov.to_csv(index=False).encode('utf-8'), file_name="livro_movimentacoes_5ciape.csv", mime="text/csv", use_container_width=True)
                 with col_dl_mv2:
-                    buf_mv_excel = io.BytesIO()
-                    with pd.ExcelWriter(buf_mv_excel, engine='openpyxl') as writer:
-                        df_exib_mov.to_excel(writer, index=False, sheet_name='Movimentações')
-                    buf_mv_excel.seek(0)
-                    st.download_button("📊 Baixar Planilha (.xlsx)", data=buf_mv_excel, file_name="livro_movimentacoes_5ciape.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                    buf_mv_excel = exportar_excel_seguro(df_exib_mov, 'Movimentações')
+                    if buf_mv_excel:
+                        st.download_button("📊 Baixar Planilha (.xlsx)", data=buf_mv_excel, file_name="livro_movimentacoes_5ciape.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                 with col_dl_mv3:
                     buf_pdf_mov = gerar_pdf_tabela_seguro("LIVRO REGISTRO DE MOVIMENTAÇÕES DE MATERIAL", df_exib_mov)
                     if buf_pdf_mov:
@@ -2348,17 +2358,15 @@ elif menu_selecionado == "🏢 Gestão de Estoque":
                         use_container_width=True
                     )
                 with col_dl_m2:
-                    buf_calc_salc = io.BytesIO()
-                    with pd.ExcelWriter(buf_calc_salc, engine='openpyxl') as writer:
-                        df_export_salc.to_excel(writer, index=False, sheet_name='Memória de Cálculo')
-                    buf_calc_salc.seek(0)
-                    st.download_button(
-                        "📊 Baixar Planilha (.xlsx)",
-                        data=buf_calc_salc,
-                        file_name="memoria_calculo_compras_5ciape.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
+                    buf_calc_salc = exportar_excel_seguro(df_export_salc, 'Memória de Cálculo')
+                    if buf_calc_salc:
+                        st.download_button(
+                            "📊 Baixar Planilha (.xlsx)",
+                            data=buf_calc_salc,
+                            file_name="memoria_calculo_compras_5ciape.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
                 with col_dl_m3:
                     buf_pdf_salc = gerar_pdf_tabela_seguro("MEMÓRIA DE CÁLCULO E PROJEÇÃO DE COMPRAS DA OM", df_export_salc)
                     if buf_pdf_salc:
@@ -2412,11 +2420,9 @@ elif menu_selecionado == "📁 Relatórios":
             with col_csv_nc:
                 st.download_button("📥 Baixar CSV", data=df_rel_nc.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_credito.csv", mime="text/csv", use_container_width=True)
             with col_xlsx_nc:
-                buffer_nc = io.BytesIO()
-                with pd.ExcelWriter(buffer_nc, engine='openpyxl') as writer:
-                    df_rel_nc.to_excel(writer, index=False, sheet_name='Notas de Crédito')
-                buffer_nc.seek(0)
-                st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_nc, file_name="relatorio_notas_credito.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                buffer_nc = exportar_excel_seguro(df_rel_nc, 'Notas de Crédito')
+                if buffer_nc:
+                    st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_nc, file_name="relatorio_notas_credito.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         else:
             st.info("Nenhuma Nota de Crédito encontrada com os filtros selecionados.")
 
@@ -2450,11 +2456,9 @@ elif menu_selecionado == "📁 Relatórios":
             with col_csv_ne:
                 st.download_button("📥 Baixar CSV", data=df_rel_ne.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_empenho.csv", mime="text/csv", use_container_width=True)
             with col_xlsx_ne:
-                buffer_ne = io.BytesIO()
-                with pd.ExcelWriter(buffer_ne, engine='openpyxl') as writer:
-                    df_rel_ne.to_excel(writer, index=False, sheet_name='Notas de Empenho')
-                buffer_ne.seek(0)
-                st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_ne, file_name="relatorio_notas_empenho.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                buffer_ne = exportar_excel_seguro(df_rel_ne, 'Notas de Empenho')
+                if buffer_ne:
+                    st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_ne, file_name="relatorio_notas_empenho.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         else:
             st.info("Nenhum Empenho encontrado com os filtros selecionados.")
 
@@ -2468,11 +2472,9 @@ elif menu_selecionado == "📁 Relatórios":
             with col_csv_nf:
                 st.download_button("📥 Baixar CSV", data=df_rel_nf.to_csv(index=False).encode('utf-8'), file_name="relatorio_notas_fiscais.csv", mime="text/csv", use_container_width=True)
             with col_xlsx_nf:
-                buffer_nf = io.BytesIO()
-                with pd.ExcelWriter(buffer_nf, engine='openpyxl') as writer:
-                    df_rel_nf.to_excel(writer, index=False, sheet_name='Notas Fiscais')
-                buffer_nf.seek(0)
-                st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_nf, file_name="relatorio_notas_fiscais.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                buffer_nf = exportar_excel_seguro(df_rel_nf, 'Notas Fiscais')
+                if buffer_nf:
+                    st.download_button("📊 Baixar Excel / Calc (.xlsx)", data=buffer_nf, file_name="relatorio_notas_fiscais.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         else:
             st.info("Nenhuma Nota Fiscal encontrada.")
 
