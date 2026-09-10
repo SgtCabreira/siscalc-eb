@@ -6,6 +6,10 @@ import urllib.request
 import json
 import re
 import io
+import os
+if os.path.exists("sistema_militar.db"):
+    with open("sistema_militar.db", "rb") as f_bk:
+        st.sidebar.download_button("💾 BAIXAR BACKUP DO BANCO AGORA", f_bk, file_name="sistema_militar_backup.db")
 from datetime import datetime, timedelta
 
 try:
