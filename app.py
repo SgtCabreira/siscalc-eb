@@ -282,7 +282,10 @@ def init_db():
         ("fornecedor_telefone", "TEXT"),
         ("fornecedor_cidade", "TEXT"),
         ("fornecedor_uf", "TEXT"),
-        ("fornecedor_situacao", "TEXT")
+        ("fornecedor_situacao", "TEXT"),
+        ("nc_id_2", "INTEGER"),
+        ("valor_nc_1", "REAL"),
+        ("valor_nc_2", "REAL DEFAULT 0.0")
     ]:
         try:
             c.execute(f"ALTER TABLE notas_empenho ADD COLUMN {col} {col_def}")
@@ -851,7 +854,10 @@ if menu_selecionado == "📊 Dashboard":
         
         q_nc_alertas = f'''
         SELECT nc.id, nc.numero_nc, nc.enquadramento, nc.data_limite_empenho, nc.finalidade, nc.valor_total,
-               (nc.valor_total - COALESCE(nc.valor_recolhido, 0.0) - COALESCE((SELECT SUM(valor_ne) FROM notas_empenho WHERE nc_id = nc.id), 0.0)) as saldo
+               (nc.valor_total - COALESCE(nc.valor_recolhido, 0.0) - 
+                (COALESCE((SELECT SUM(COALESCE(valor_nc_1, valor_ne)) FROM notas_empenho WHERE nc_id = nc.id), 0.0) +
+                 COALESCE((SELECT SUM(COALESCE(valor_nc_2, 0.0)) FROM notas_empenho WHERE nc_id_2 = nc.id), 0.0))
+               ) as saldo
         FROM notas_credito nc
         WHERE nc.om_id = {user['om_id']}
         ORDER BY nc.data_limite_empenho ASC
@@ -1080,7 +1086,7 @@ elif menu_selecionado == "📑 Notas de Crédito":
                 id_nc_del = dict_del[nc_del_escolha]
 
                 cur = conn.cursor()
-                cur.execute("SELECT COUNT(*) FROM notas_empenho WHERE nc_id = ?", (id_nc_del,))
+                cur.execute("SELECT COUNT(*) FROM notas_empenho WHERE nc_id = ? OR nc_id_2 = ?", (id_nc_del, id_nc_del))
                 qtd_ne = cur.fetchone()[0]
 
                 if qtd_ne > 0:
@@ -1124,11 +1130,15 @@ elif menu_selecionado == "📑 Notas de Crédito":
     query_cards_nc = f'''
     SELECT nc.id, nc.numero_nc, nc.data_emissao, nc.data_limite_empenho, nc.enquadramento, 
            nc.valor_total, COALESCE(nc.valor_recolhido, 0.0) as valor_recolhido,
-           COALESCE(SUM(ne.valor_ne), 0.0) as total_empenhado,
-           (nc.valor_total - COALESCE(SUM(ne.valor_ne), 0.0) - COALESCE(nc.valor_recolhido, 0.0)) as saldo_restante,
+           (COALESCE((SELECT SUM(COALESCE(valor_nc_1, valor_ne)) FROM notas_empenho WHERE nc_id = nc.id), 0.0) +
+            COALESCE((SELECT SUM(COALESCE(valor_nc_2, 0.0)) FROM notas_empenho WHERE nc_id_2 = nc.id), 0.0)
+           ) as total_empenhado,
+           (nc.valor_total - COALESCE(nc.valor_recolhido, 0.0) - 
+            (COALESCE((SELECT SUM(COALESCE(valor_nc_1, valor_ne)) FROM notas_empenho WHERE nc_id = nc.id), 0.0) +
+             COALESCE((SELECT SUM(COALESCE(valor_nc_2, 0.0)) FROM notas_empenho WHERE nc_id_2 = nc.id), 0.0))
+           ) as saldo_restante,
            nc.finalidade
     FROM notas_credito nc
-    LEFT JOIN notas_empenho ne ON nc.id = ne.nc_id
     WHERE nc.om_id = {user['om_id']}
     GROUP BY nc.id
     '''
@@ -1197,11 +1207,12 @@ elif menu_selecionado == "📑 Notas de Crédito":
                 with st.popover("🔍 Ver Detalhes", key=f"pop_nc_{row['id']}", use_container_width=True):
                     c = conn.cursor()
                     c.execute('''
-                    SELECT nc.*, COALESCE(SUM(ne.valor_ne), 0.0) as empenhado_real
+                    SELECT nc.*, 
+                           (COALESCE((SELECT SUM(COALESCE(valor_nc_1, valor_ne)) FROM notas_empenho WHERE nc_id = nc.id), 0.0) +
+                            COALESCE((SELECT SUM(COALESCE(valor_nc_2, 0.0)) FROM notas_empenho WHERE nc_id_2 = nc.id), 0.0)
+                           ) as empenhado_real
                     FROM notas_credito nc
-                    LEFT JOIN notas_empenho ne ON nc.id = ne.nc_id
                     WHERE nc.id = ?
-                    GROUP BY nc.id
                     ''', (row['id'],))
                     nc_info = dict(c.fetchone())
                     saldo_det = max(nc_info['valor_total'] - nc_info['empenhado_real'] - (nc_info['valor_recolhido'] or 0.0), 0.0)
@@ -1248,13 +1259,16 @@ elif menu_selecionado == "📑 Notas de Crédito":
                     st.markdown("---")
                     df_nes_vinc = pd.read_sql_query(f'''
                     SELECT numero_ne as "Número NE", data_emissao as "Emissão", fornecedor_nome as "Fornecedor",
-                           fornecedor_cnpj as "CNPJ", valor_ne as "Valor (R$)", status as "Status"
-                    FROM notas_empenho WHERE nc_id = {row['id']} ORDER BY id DESC
+                           fornecedor_cnpj as "CNPJ", valor_ne as "Valor Total NE (R$)",
+                           CASE WHEN nc_id = {row['id']} THEN COALESCE(valor_nc_1, valor_ne) ELSE COALESCE(valor_nc_2, 0.0) END as "Valor desta NC (R$)",
+                           status as "Status"
+                    FROM notas_empenho WHERE nc_id = {row['id']} OR nc_id_2 = {row['id']} ORDER BY id DESC
                     ''', conn)
 
                     if not df_nes_vinc.empty:
                         df_nes_vinc['Emissão'] = df_nes_vinc['Emissão'].apply(formatar_data_br)
-                        df_nes_vinc['Valor (R$)'] = df_nes_vinc['Valor (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                        df_nes_vinc['Valor Total NE (R$)'] = df_nes_vinc['Valor Total NE (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                        df_nes_vinc['Valor desta NC (R$)'] = df_nes_vinc['Valor desta NC (R$)'].apply(lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                         st.markdown(f"**📋 Notas de Empenho Vinculadas ({len(df_nes_vinc)} registro(s)):**")
                         st.dataframe(df_nes_vinc, use_container_width=True, hide_index=True)
                     else:
@@ -1321,7 +1335,10 @@ elif menu_selecionado == "📋 Notas de Empenho":
         with st.expander("➕ Cadastrar Nova Nota de Empenho", expanded=False):
             df_nc_opcoes = pd.read_sql_query(f'''
             SELECT id, numero_nc, valor_total,
-                   (valor_total - COALESCE(valor_recolhido, 0.0) - (SELECT COALESCE(SUM(valor_ne), 0) FROM notas_empenho WHERE nc_id = notas_credito.id)) as saldo
+                   (valor_total - COALESCE(valor_recolhido, 0.0) - 
+                    (COALESCE((SELECT SUM(COALESCE(valor_nc_1, valor_ne)) FROM notas_empenho WHERE nc_id = notas_credito.id), 0.0) +
+                     COALESCE((SELECT SUM(COALESCE(valor_nc_2, 0.0)) FROM notas_empenho WHERE nc_id_2 = notas_credito.id), 0.0))
+                   ) as saldo
             FROM notas_credito WHERE om_id = {user['om_id']}
             ''', conn)
 
@@ -1329,8 +1346,18 @@ elif menu_selecionado == "📋 Notas de Empenho":
                 st.warning("Cadastre primeiro uma Nota de Crédito com saldo disponível.")
             else:
                 opcoes_nc_dict = {f"{row['numero_nc']} (Saldo Disponível: R$ {row['saldo']:,.2f})": row['id'] for _, row in df_nc_opcoes.iterrows()}
-                nc_selecionada = st.selectbox("Vincular à Nota de Crédito:", list(opcoes_nc_dict.keys()), key="nc_sel_empenho")
-                nc_id = opcoes_nc_dict[nc_selecionada]
+                
+                col_sel_nc1, col_sel_nc2 = st.columns(2)
+                with col_sel_nc1:
+                    nc_selecionada = st.selectbox("1ª Nota de Crédito (Principal):", list(opcoes_nc_dict.keys()), key="nc_sel_empenho")
+                    nc_id = opcoes_nc_dict[nc_selecionada]
+                
+                with col_sel_nc2:
+                    opcoes_nc2_dict = {k: v for k, v in opcoes_nc_dict.items() if v != nc_id}
+                    lista_nc2 = ["❌ Nenhuma (Empenho vinculado a apenas 1 NC)"] + list(opcoes_nc2_dict.keys())
+                    nc2_selecionada = st.selectbox("2ª Nota de Crédito (Opcional - caso utilize duas NCs):", lista_nc2, key="nc_sel_empenho_2")
+                    usa_segunda_nc = not nc2_selecionada.startswith("❌")
+                    nc_id_2 = opcoes_nc2_dict[nc2_selecionada] if usa_segunda_nc else None
 
                 st.markdown("##### 🔍 Busca Automática da Empresa na Receita Federal")
                 col_b_cnpj, col_b_btn = st.columns([3, 1])
@@ -1351,10 +1378,30 @@ elif menu_selecionado == "📋 Notas de Empenho":
                         st.warning("CNPJ não localizado na Receita Federal ou sem conexão no momento.")
 
                 with st.form("form_ne_limpo"):
-                    col1, col2, col3 = st.columns(3)
-                    numero_ne = col1.text_input("Número do Empenho (ex.: 2026NE000456)")
-                    data_emissao_ne = col2.date_input("Data de Emissão da NE", value=datetime.now(), format="DD/MM/YYYY")
-                    valor_ne = col3.number_input("Valor da NE (R$)", min_value=0.01, step=50.0, format="%.2f")
+                    if usa_segunda_nc:
+                        col1, col2 = st.columns(2)
+                        numero_ne = col1.text_input("Número do Empenho (ex.: 2026NE000456)")
+                        data_emissao_ne = col2.date_input("Data de Emissão da NE", value=datetime.now(), format="DD/MM/YYYY")
+                        
+                        col_v1, col_v2, col_v3 = st.columns(3)
+                        nc1_nom = nc_selecionada.split(" (Saldo:")[0]
+                        nc2_nom = nc2_selecionada.split(" (Saldo:")[0]
+                        val_nc1 = col_v1.number_input(f"Valor da 1ª NC ({nc1_nom}) - R$:", min_value=0.01, step=50.0, format="%.2f")
+                        val_nc2 = col_v2.number_input(f"Valor da 2ª NC ({nc2_nom}) - R$:", min_value=0.01, step=50.0, format="%.2f")
+                        valor_ne = val_nc1 + val_nc2
+                        col_v3.markdown(f'''
+                        <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(197,160,89,0.3); border-radius: 8px; padding: 8px 12px; margin-top: 15px;">
+                            <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Valor Total da NE</div>
+                            <div style="font-size: 18px; font-weight: 900; color: #38bdf8;">R$ {valor_ne:,.2f}</div>
+                        </div>
+                        '''.replace(",", "X").replace(".", ",").replace("X", "."), unsafe_allow_html=True)
+                    else:
+                        col1, col2, col3 = st.columns(3)
+                        numero_ne = col1.text_input("Número do Empenho (ex.: 2026NE000456)")
+                        data_emissao_ne = col2.date_input("Data de Emissão da NE", value=datetime.now(), format="DD/MM/YYYY")
+                        valor_ne = col3.number_input("Valor da NE (R$)", min_value=0.01, step=50.0, format="%.2f")
+                        val_nc1 = valor_ne
+                        val_nc2 = 0.0
 
                     col4, col5, col6 = st.columns(3)
                     tipo_empenho = col4.selectbox("Tipo de Empenho", ["Ordinário", "Global", "Estimativo"])
@@ -1390,12 +1437,12 @@ elif menu_selecionado == "📋 Notas de Empenho":
                             sit_salvar = st.session_state.get('ne_sit_auto', 'ATIVA')
 
                             c.execute('''
-                            INSERT INTO notas_empenho (nc_id, om_id, numero_ne, data_emissao, valor_ne, tipo_empenho,
+                            INSERT INTO notas_empenho (nc_id, nc_id_2, valor_nc_1, valor_nc_2, om_id, numero_ne, data_emissao, valor_ne, tipo_empenho,
                                                        fornecedor_nome, fornecedor_cnpj, data_envio_empresa, prazo_dias,
                                                        data_limite, prorrogado, nova_data_limite, justificativa_prorrogacao,
                                                        fornecedor_email, fornecedor_telefone, fornecedor_cidade, fornecedor_uf, fornecedor_situacao)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (nc_id, user['om_id'], numero_ne, str(data_emissao_ne), valor_ne, tipo_empenho,
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (nc_id, nc_id_2, val_nc1, val_nc2, user['om_id'], numero_ne, str(data_emissao_ne), valor_ne, tipo_empenho,
                                   fornecedor_nome, fornecedor_cnpj, str(data_envio), prazo_dias, str(data_limite_calc),
                                   1 if prorrogado else 0, str(nova_data) if nova_data else None, justificativa,
                                   email_salvar, tel_salvar, cid_salvar, uf_salvar, sit_salvar))
@@ -1423,16 +1470,39 @@ elif menu_selecionado == "📋 Notas de Empenho":
                     nc_atual_num = next((k for k, v in dict_ncs_v.items() if v == ne_dados_atual['nc_id']), list(dict_ncs_v.keys())[0] if dict_ncs_v else "")
                     idx_nc_v = list(dict_ncs_v.keys()).index(nc_atual_num) if nc_atual_num in dict_ncs_v else 0
                     
-                    ed_nc_vinculada = st.selectbox("Nota de Crédito Vinculada:", list(dict_ncs_v.keys()), index=idx_nc_v)
-                    novo_nc_id = dict_ncs_v[ed_nc_vinculada]
+                    col_ed_nc1, col_ed_nc2 = st.columns(2)
+                    with col_ed_nc1:
+                        ed_nc_vinculada = st.selectbox("1ª Nota de Crédito (Principal):", list(dict_ncs_v.keys()), index=idx_nc_v, key=f"top_ed_nc1_{id_ne_to_edit}")
+                        novo_nc_id = dict_ncs_v[ed_nc_vinculada]
+                    
+                    with col_ed_nc2:
+                        dict_ncs_v2 = {k: v for k, v in dict_ncs_v.items() if v != novo_nc_id}
+                        lista_v2 = ["❌ Nenhuma (Apenas 1 NC)"] + list(dict_ncs_v2.keys())
+                        nc2_atual_num = next((k for k, v in dict_ncs_v2.items() if v == ne_dados_atual.get('nc_id_2')), lista_v2[0])
+                        idx_nc_v2 = lista_v2.index(nc2_atual_num) if nc2_atual_num in lista_v2 else 0
+                        ed_nc_vinculada_2 = st.selectbox("2ª Nota de Crédito (Opcional):", lista_v2, index=idx_nc_v2, key=f"top_ed_nc2_{id_ne_to_edit}")
+                        novo_nc_id_2 = dict_ncs_v2[ed_nc_vinculada_2] if not ed_nc_vinculada_2.startswith("❌") else None
 
                     c_ne1, c_ne2, c_ne3 = st.columns(3)
                     ed_num_ne = c_ne1.text_input("Número do Empenho (NE):", value=ne_dados_atual['numero_ne'])
                     ed_forn_nome = c_ne2.text_input("Razão Social do Fornecedor:", value=ne_dados_atual['fornecedor_nome'])
                     ed_forn_cnpj = c_ne3.text_input("CNPJ do Fornecedor:", value=ne_dados_atual['fornecedor_cnpj'])
 
+                    if novo_nc_id_2:
+                        c_ev1, c_ev2 = st.columns(2)
+                        val1_init = float(ne_dados_atual.get('valor_nc_1') or ne_dados_atual['valor_ne'])
+                        val2_init = float(ne_dados_atual.get('valor_nc_2') or 0.0)
+                        ed_val_nc1 = c_ev1.number_input("Valor retirado da 1ª NC (R$):", value=val1_init, step=50.0, format="%.2f", key=f"top_v1_{id_ne_to_edit}")
+                        ed_val_nc2 = c_ev2.number_input("Valor retirado da 2ª NC (R$):", value=val2_init, step=50.0, format="%.2f", key=f"top_v2_{id_ne_to_edit}")
+                        ed_val_ne = ed_val_nc1 + ed_val_nc2
+                        st.info(f"💰 Valor Total Atualizado da NE: **R$ {ed_val_ne:,.2f}**")
+                    else:
+                        c_ev1, = st.columns(1)
+                        ed_val_ne = c_ev1.number_input("Valor Total da NE (R$):", value=float(ne_dados_atual['valor_ne']), step=50.0, format="%.2f", key=f"top_vtot_{id_ne_to_edit}")
+                        ed_val_nc1 = ed_val_ne
+                        ed_val_nc2 = 0.0
+
                     c_ne4, c_ne5, c_ne6 = st.columns(3)
-                    ed_val_ne = c_ne4.number_input("Valor da NE (R$):", value=float(ne_dados_atual['valor_ne']), step=50.0, format="%.2f")
                     tipos_emp_lista = ["Ordinário", "Global", "Estimativo"]
                     idx_tipo_e = tipos_emp_lista.index(ne_dados_atual['tipo_empenho']) if ne_dados_atual['tipo_empenho'] in tipos_emp_lista else 0
                     ed_tipo_emp = c_ne5.selectbox("Tipo de Empenho:", tipos_emp_lista, index=idx_tipo_e)
@@ -1467,13 +1537,13 @@ elif menu_selecionado == "📋 Notas de Empenho":
                         c = conn.cursor()
                         c.execute('''
                         UPDATE notas_empenho
-                        SET nc_id = ?, numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?,
+                        SET nc_id = ?, nc_id_2 = ?, valor_nc_1 = ?, valor_nc_2 = ?, numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?,
                             valor_ne = ?, tipo_empenho = ?, status = ?, data_emissao = ?,
                             data_envio_empresa = ?, prazo_dias = ?, data_limite = ?,
                             prorrogado = ?, nova_data_limite = ?, justificativa_prorrogacao = ?,
                             fornecedor_email = ?, fornecedor_telefone = ?
                         WHERE id = ?
-                        ''', (novo_nc_id, ed_num_ne.strip(), ed_forn_nome.strip(), ed_forn_cnpj.strip(),
+                        ''', (novo_nc_id, novo_nc_id_2, ed_val_nc1, ed_val_nc2, ed_num_ne.strip(), ed_forn_nome.strip(), ed_forn_cnpj.strip(),
                               ed_val_ne, ed_tipo_emp, ed_status_ne, str(ed_dt_emissao_ne), str(ed_dt_envio_ne),
                               ed_prazo_dias, str(nova_data_calc), 1 if ed_prorrogado else 0,
                               str(ed_nova_data_limite) if ed_nova_data_limite else None,
@@ -1540,12 +1610,17 @@ elif menu_selecionado == "📋 Notas de Empenho":
             f_ne_pago = st.checkbox("🔵 Pagos", value=True, key="chk_ne_pago")
 
     df_nes = pd.read_sql_query(f'''
-    SELECT ne.id, nc.numero_nc as NC_Origem, ne.numero_ne, ne.tipo_empenho, 
+    SELECT ne.id, 
+           nc1.numero_nc as NC_Origem, 
+           nc2.numero_nc as NC_Origem_2,
+           ne.nc_id, ne.nc_id_2, ne.valor_nc_1, ne.valor_nc_2,
+           ne.numero_ne, ne.tipo_empenho, 
            ne.fornecedor_nome, ne.fornecedor_cnpj, ne.valor_ne, ne.data_emissao, 
            COALESCE(ne.nova_data_limite, ne.data_limite) as data_final,
            ne.status
     FROM notas_empenho ne
-    JOIN notas_credito nc ON ne.nc_id = nc.id
+    JOIN notas_credito nc1 ON ne.nc_id = nc1.id
+    LEFT JOIN notas_credito nc2 ON ne.nc_id_2 = nc2.id
     WHERE ne.om_id = {user['om_id']}
     ''', conn)
 
@@ -1603,16 +1678,17 @@ elif menu_selecionado == "📋 Notas de Empenho":
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 12.5px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 8px;">
                         <span style="color: #cbd5e1;">Valor: <b style="color: #38bdf8; font-size: 14px;">R$ {row['valor_ne']:,.2f}</b></span>
-                        <span style="color: #cbd5e1;">Origem: <b style="color: #ffffff;">{row['NC_Origem']}</b></span>
+                        <span style="color: #cbd5e1;">Origem: <b style="color: #ffffff;">{f"{row['NC_Origem']} + {row['NC_Origem_2']}" if pd.notna(row['NC_Origem_2']) and row['NC_Origem_2'] else row['NC_Origem']}</b></span>
                     </div>
                 </div>
                 ''', unsafe_allow_html=True)
                 with st.popover("🏢 Ficha da Empresa & Detalhes", key=f"pop_ne_{row['id']}", use_container_width=True):
                     c = conn.cursor()
                     c.execute('''
-                    SELECT ne.*, nc.numero_nc as NC_Origem
+                    SELECT ne.*, nc1.numero_nc as NC_Origem, nc2.numero_nc as NC_Origem_2
                     FROM notas_empenho ne
-                    JOIN notas_credito nc ON ne.nc_id = nc.id
+                    JOIN notas_credito nc1 ON ne.nc_id = nc1.id
+                    LEFT JOIN notas_credito nc2 ON ne.nc_id_2 = nc2.id
                     WHERE ne.id = ?
                     ''', (row['id'],))
                     ne_info = dict(c.fetchone())
@@ -1622,7 +1698,10 @@ elif menu_selecionado == "📋 Notas de Empenho":
                         <div style="font-size: 11px; font-weight: 800; color: #C5A059; text-transform: uppercase; letter-spacing: 0.5px;">Dossiê do Empenho & Fornecedor</div>
                         <div style="font-size: 19px; font-weight: 900; color: #ffffff;">{ne_info['numero_ne']}</div>
                         <div style="font-size: 15px; font-weight: 700; color: #f8fafc; margin-top: 4px;">{ne_info['fornecedor_nome']}</div>
-                        <div style="font-size: 13px; color: #cbd5e1;">CNPJ: <b>{ne_info['fornecedor_cnpj']}</b> | NC Origem: <b style="color: #38bdf8;">{ne_info['NC_Origem']}</b></div>
+                        <div style="font-size: 13px; color: #cbd5e1;">
+    CNPJ: <b>{ne_info['fornecedor_cnpj']}</b> | 
+    {f"NCs Origem: <b style='color: #38bdf8;'>{ne_info['NC_Origem']} (R$ {ne_info['valor_nc_1'] or 0.0:,.2f})</b> + <b style='color: #fbbf24;'>{ne_info['NC_Origem_2']} (R$ {ne_info['valor_nc_2'] or 0.0:,.2f})</b>" if pd.notna(ne_info.get('NC_Origem_2')) and ne_info.get('NC_Origem_2') else f"NC Origem: <b style='color: #38bdf8;'>{ne_info['NC_Origem']}</b>"}
+</div>
                     </div>
                     ''', unsafe_allow_html=True)
 
@@ -1694,12 +1773,12 @@ elif menu_selecionado == "📋 Notas de Empenho":
                             if st.form_submit_button("💾 Salvar Todas as Alterações da NE", type="primary"):
                                 c.execute('''
                                 UPDATE notas_empenho
-                                SET nc_id = ?, numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?, valor_ne = ?,
+                                SET nc_id = ?, nc_id_2 = ?, valor_nc_1 = ?, valor_nc_2 = ?, numero_ne = ?, fornecedor_nome = ?, fornecedor_cnpj = ?, valor_ne = ?,
                                     tipo_empenho = ?, status = ?, data_emissao = ?, data_envio_empresa = ?,
                                     prazo_dias = ?, data_limite = ?, prorrogado = ?, nova_data_limite = ?,
                                     justificativa_prorrogacao = ?, fornecedor_email = ?, fornecedor_telefone = ?
                                 WHERE id = ?
-                                ''', (novo_nc_id_card, ed_num.strip(), ed_nome.strip(), ed_cnpj.strip(), ed_val,
+                                ''', (novo_nc_id_card, novo_nc_id_card_2, ed_val_nc1_c, ed_val_nc2_c, ed_num.strip(), ed_nome.strip(), ed_cnpj.strip(), ed_val,
                                       ed_tipo, ed_st, str(ed_dt_em), str(ed_dt_env), ed_pz, str(calc_lim_card),
                                       1 if ed_prorr_c else 0, str(nova_dt_c) if nova_dt_c else None, just_c,
                                       ed_email.strip(), ed_tel.strip(), row['id']))
@@ -2687,9 +2766,14 @@ elif menu_selecionado == "📁 Relatórios":
                nc.natureza_despesa as "ND",
                nc.pi as "PI",
                nc.valor_total as "Valor Total (R$)",
-               COALESCE((SELECT SUM(valor_ne) FROM notas_empenho WHERE nc_id = nc.id), 0.0) as "Total Empenhado (R$)",
-               (nc.valor_total - COALESCE(nc.valor_recolhido, 0.0) - COALESCE((SELECT SUM(valor_ne) FROM notas_empenho WHERE nc_id = nc.id), 0.0)) as "Saldo Disponível (R$)",
-               COALESCE((SELECT GROUP_CONCAT(numero_ne, ', ') FROM notas_empenho WHERE nc_id = nc.id), 'Sem empenho') as "Empenhos Vinculados",
+               (COALESCE((SELECT SUM(COALESCE(valor_nc_1, valor_ne)) FROM notas_empenho WHERE nc_id = nc.id), 0.0) +
+                COALESCE((SELECT SUM(COALESCE(valor_nc_2, 0.0)) FROM notas_empenho WHERE nc_id_2 = nc.id), 0.0)
+               ) as "Total Empenhado (R$)",
+               (nc.valor_total - COALESCE(nc.valor_recolhido, 0.0) - 
+                (COALESCE((SELECT SUM(COALESCE(valor_nc_1, valor_ne)) FROM notas_empenho WHERE nc_id = nc.id), 0.0) +
+                 COALESCE((SELECT SUM(COALESCE(valor_nc_2, 0.0)) FROM notas_empenho WHERE nc_id_2 = nc.id), 0.0))
+               ) as "Saldo Disponível (R$)",
+               COALESCE((SELECT GROUP_CONCAT(numero_ne, ', ') FROM notas_empenho WHERE nc_id = nc.id OR nc_id_2 = nc.id), 'Sem empenho') as "Empenhos Vinculados",
                nc.finalidade as "Finalidade"
         FROM notas_credito nc
         WHERE nc.om_id = {user['om_id']}
@@ -2756,7 +2840,7 @@ elif menu_selecionado == "📁 Relatórios":
 
         q_rel_ne = f"""
         SELECT ne.numero_ne as "Número NE",
-               nc.numero_nc as "NC Origem",
+               CASE WHEN nc2.numero_nc IS NOT NULL THEN (nc1.numero_nc || ' + ' || nc2.numero_nc) ELSE nc1.numero_nc END as "NC Origem",
                ne.tipo_empenho as "Tipo",
                ne.fornecedor_nome as "Fornecedor",
                ne.fornecedor_cnpj as "CNPJ",
@@ -2765,7 +2849,8 @@ elif menu_selecionado == "📁 Relatórios":
                COALESCE(ne.nova_data_limite, ne.data_limite) as data_limite,
                ne.status as "Status"
         FROM notas_empenho ne
-        JOIN notas_credito nc ON ne.nc_id = nc.id
+        JOIN notas_credito nc1 ON ne.nc_id = nc1.id
+        LEFT JOIN notas_credito nc2 ON ne.nc_id_2 = nc2.id
         WHERE ne.om_id = {user['om_id']}
         """
         if f_status != "Todos":
