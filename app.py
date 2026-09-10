@@ -6,10 +6,6 @@ import urllib.request
 import json
 import re
 import io
-import os
-if os.path.exists("sistema_militar.db"):
-    with open("sistema_militar.db", "rb") as f_bk:
-        st.sidebar.download_button("💾 BAIXAR BACKUP DO BANCO AGORA", f_bk, file_name="sistema_militar_backup.db")
 from datetime import datetime, timedelta
 
 try:
@@ -322,13 +318,17 @@ def init_db():
         fator_embalagem REAL DEFAULT 1.0,
         unidade_medida TEXT DEFAULT 'UN',
         quantidade_atual REAL NOT NULL,
+        estoque_minimo REAL DEFAULT 0.0,
+        estoque_ideal REAL DEFAULT 0.0,
         valor_unitario_estimado REAL NOT NULL,
         FOREIGN KEY (om_id) REFERENCES oms (id)
     )
     ''')
     for col, col_def in [
         ("tipo_embalagem", "TEXT DEFAULT 'UNIDADE'"),
-        ("fator_embalagem", "REAL DEFAULT 1.0")
+        ("fator_embalagem", "REAL DEFAULT 1.0"),
+        ("estoque_minimo", "REAL DEFAULT 0.0"),
+        ("estoque_ideal", "REAL DEFAULT 0.0")
     ]:
         try:
             c.execute(f"ALTER TABLE estoque_itens ADD COLUMN {col} {col_def}")
@@ -1333,6 +1333,24 @@ elif menu_selecionado == "📋 Notas de Empenho":
     st.title("📋 Notas de Empenho da OM")
     conn = get_connection()
 
+    # Migração automática de colunas para notas de empenho divididas
+    cur_mig_ne = conn.cursor()
+    for col, col_def in [
+        ("fornecedor_email", "TEXT"),
+        ("fornecedor_telefone", "TEXT"),
+        ("fornecedor_cidade", "TEXT"),
+        ("fornecedor_uf", "TEXT"),
+        ("fornecedor_situacao", "TEXT"),
+        ("nc_id_2", "INTEGER"),
+        ("valor_nc_1", "REAL"),
+        ("valor_nc_2", "REAL DEFAULT 0.0")
+    ]:
+        try:
+            cur_mig_ne.execute(f"ALTER TABLE notas_empenho ADD COLUMN {col} {col_def}")
+        except sqlite3.OperationalError:
+            pass
+    conn.commit()
+
     col_ne_top1, col_ne_top2, col_ne_top3 = st.columns(3)
 
     with col_ne_top1:
@@ -1732,21 +1750,55 @@ elif menu_selecionado == "📋 Notas de Empenho":
 
                     with st.expander("✏️ Editar Todos os Dados desta NE", expanded=False):
                         with st.form(f"form_ed_ne_card_{row['id']}"):
+                            # Inicialização defensiva obrigatória (garante que nenhuma variável fique indefinida)
+                            novo_nc_id_card = ne_info.get('nc_id')
+                            novo_nc_id_card_2 = None
+                            ed_val = float(ne_info.get('valor_ne') or 0.0)
+                            ed_val_nc1_c = float(ne_info.get('valor_nc_1') or ed_val)
+                            ed_val_nc2_c = float(ne_info.get('valor_nc_2') or 0.0)
+
                             df_ncs_vinc_card = pd.read_sql_query(f"SELECT id, numero_nc FROM notas_credito WHERE om_id = {user['om_id']}", conn)
                             dict_ncs_card = {r['numero_nc']: r['id'] for _, r in df_ncs_vinc_card.iterrows()}
-                            nc_card_atual_num = next((k for k, v in dict_ncs_card.items() if v == ne_info['nc_id']), list(dict_ncs_card.keys())[0] if dict_ncs_card else "")
-                            idx_nc_c = list(dict_ncs_card.keys()).index(nc_card_atual_num) if nc_card_atual_num in dict_ncs_card else 0
-                            
-                            c_ed_nc = st.selectbox("Vincular à Nota de Crédito:", list(dict_ncs_card.keys()), index=idx_nc_c, key=f"c_ed_nc_{row['id']}")
-                            novo_nc_id_card = dict_ncs_card[c_ed_nc]
+
+                            if dict_ncs_card:
+                                nc_card_atual_num = next((k for k, v in dict_ncs_card.items() if v == ne_info.get('nc_id')), list(dict_ncs_card.keys())[0])
+                                idx_nc_c = list(dict_ncs_card.keys()).index(nc_card_atual_num) if nc_card_atual_num in dict_ncs_card else 0
+                                
+                                col_c_nc1, col_c_nc2 = st.columns(2)
+                                with col_c_nc1:
+                                    c_ed_nc = st.selectbox("1ª Nota de Crédito (Principal):", list(dict_ncs_card.keys()), index=idx_nc_c, key=f"c_ed_nc_{row['id']}")
+                                    novo_nc_id_card = dict_ncs_card.get(c_ed_nc)
+                                
+                                with col_c_nc2:
+                                    dict_ncs_c2 = {k: v for k, v in dict_ncs_card.items() if v != novo_nc_id_card}
+                                    lista_c2 = ["❌ Nenhuma (Apenas 1 NC)"] + list(dict_ncs_c2.keys())
+                                    nc2_c_atual_num = next((k for k, v in dict_ncs_c2.items() if v == ne_info.get('nc_id_2')), lista_c2[0])
+                                    idx_nc_c2 = lista_c2.index(nc2_c_atual_num) if nc2_c_atual_num in lista_c2 else 0
+                                    c_ed_nc_2 = st.selectbox("2ª Nota de Crédito (Opcional):", lista_c2, index=idx_nc_c2, key=f"c_ed_nc2_{row['id']}")
+                                    novo_nc_id_card_2 = dict_ncs_c2.get(c_ed_nc_2) if (c_ed_nc_2 and not c_ed_nc_2.startswith("❌")) else None
+                            else:
+                                st.warning("Nenhuma Nota de Crédito cadastrada na OM.")
 
                             ed_c1, ed_c2, ed_c3 = st.columns(3)
                             ed_num = ed_c1.text_input("Número NE:", value=ne_info['numero_ne'], key=f"ed_num_{row['id']}")
                             ed_nome = ed_c2.text_input("Fornecedor:", value=ne_info['fornecedor_nome'], key=f"ed_nome_{row['id']}")
                             ed_cnpj = ed_c3.text_input("CNPJ:", value=ne_info['fornecedor_cnpj'], key=f"ed_cnpj_{row['id']}")
 
-                            ed_c4, ed_c5, ed_c6 = st.columns(3)
-                            ed_val = ed_c4.number_input("Valor (R$):", value=float(ne_info['valor_ne']), step=50.0, format="%.2f", key=f"ed_val_{row['id']}")
+                            if novo_nc_id_card_2:
+                                c_ev1_c, c_ev2_c = st.columns(2)
+                                val1_c_init = float(ne_info.get('valor_nc_1') or ne_info['valor_ne'])
+                                val2_c_init = float(ne_info.get('valor_nc_2') or 0.0)
+                                ed_val_nc1_c = c_ev1_c.number_input("Valor retirado da 1ª NC (R$):", value=val1_c_init, step=50.0, format="%.2f", key=f"ed_v1_c_{row['id']}")
+                                ed_val_nc2_c = c_ev2_c.number_input("Valor retirado da 2ª NC (R$):", value=val2_c_init, step=50.0, format="%.2f", key=f"ed_v2_c_{row['id']}")
+                                ed_val = ed_val_nc1_c + ed_val_nc2_c
+                                st.info(f"💰 Valor Total Atualizado da NE: **R$ {ed_val:,.2f}**")
+                            else:
+                                c_ev1_c = st.columns(1)[0]
+                                ed_val = c_ev1_c.number_input("Valor Total da NE (R$):", value=float(ne_info['valor_ne']), step=50.0, format="%.2f", key=f"ed_val_{row['id']}")
+                                ed_val_nc1_c = ed_val
+                                ed_val_nc2_c = 0.0
+
+                            ed_c5, ed_c6 = st.columns(2)
                             tipos_e = ["Ordinário", "Global", "Estimativo"]
                             ed_tipo = ed_c5.selectbox("Tipo:", tipos_e, index=tipos_e.index(ne_info['tipo_empenho']) if ne_info['tipo_empenho'] in tipos_e else 0, key=f"ed_tipo_{row['id']}")
                             sts_e = ["Aguardando Entrega", "Liquidado", "Pago"]
@@ -3203,6 +3255,37 @@ elif menu_selecionado == "⚙️ Admin":
         st.markdown("---")
         st.write("**Militares Cadastrados no Sistema:**")
         st.dataframe(df_usuarios[['OM', 'posto_grad', 'nome_guerra', 'perfil', 'identidade_militar']], use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.subheader("💾 Backup e Restauração do Banco de Dados da OM")
+    st.caption("🛡️ **Importante no Streamlit Cloud:** Como os servidores em nuvem podem reiniciar ou redefinir arquivos locais ao atualizar o código no GitHub, utilize esta ferramenta para baixar cópias de segurança (.db) e restaurar todos os seus dados a qualquer momento em 1 clique.")
+    
+    col_bk1, col_bk2 = st.columns(2)
+    with col_bk1:
+        st.markdown("##### 📥 Exportar / Baixar Banco Atual")
+        import os
+        if os.path.exists(DB_FILE):
+            with open(DB_FILE, "rb") as f_db:
+                bytes_db = f_db.read()
+            st.download_button(
+                label="📥 Baixar Cópia Completa do Banco (sistema_militar.db)",
+                data=bytes_db,
+                file_name=f"sistema_militar_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
+                mime="application/x-sqlite3",
+                use_container_width=True,
+                help="Baixa o arquivo do banco com todas as suas NCs, NEs, estoque, materiais e usuários cadastrados."
+            )
+            st.success("✅ O banco de dados está online e pronto para download de backup.")
+    
+    with col_bk2:
+        st.markdown("##### 📤 Restaurar / Importar Banco Salvo")
+        up_db_file = st.file_uploader("Selecione um arquivo de backup (.db):", type=["db", "sqlite", "sqlite3"], key="up_sqlite_db_restore")
+        if up_db_file is not None:
+            if st.button("⚠️ Confirmar Restauração Completa do Banco de Dados", type="primary", use_container_width=True):
+                with open(DB_FILE, "wb") as f_out:
+                    f_out.write(up_db_file.read())
+                st.success("✅ Banco de dados restaurado com sucesso! Atualizando sistema...")
+                st.rerun()
 
     conn.close()
 
