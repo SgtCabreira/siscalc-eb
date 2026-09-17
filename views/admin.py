@@ -10,6 +10,61 @@ from core.api_cnpj import buscar_dados_cnpj
 from core.gestor_fluxo import GestorFluxoMilitar
 
 
+def sincronizar_backup_github(caminho_db, github_token=None, repo_name=None, branch="main"):
+    """Envia o arquivo .db gerado diretamente para o repositório do GitHub via API REST."""
+    import base64
+    import json
+    import urllib.request
+    import os
+    from datetime import datetime
+
+    if not github_token or not repo_name or not os.path.exists(caminho_db):
+        return False
+
+    try:
+        with open(caminho_db, "rb") as f:
+            conteudo_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        hoje_str = datetime.now().strftime('%Y-%m-%d')
+        path_no_repo = f"backups/backup_{hoje_str}.db"
+        url = f"https://api.github.com/repos/{repo_name}/contents/{path_no_repo}"
+
+        sha = None
+        try:
+            req_check = urllib.request.Request(
+                url,
+                headers={"Authorization": f"token {github_token}", "User-Agent": "SisCalc-Backup-Bot"}
+            )
+            with urllib.request.urlopen(req_check, timeout=5) as resp:
+                dados_existente = json.loads(resp.read().decode("utf-8"))
+                sha = dados_existente.get("sha")
+        except Exception:
+            pass
+
+        payload = {
+            "message": f"🤖 Backup automático diário das 17h - {hoje_str}",
+            "content": conteudo_b64,
+            "branch": branch
+        }
+        if sha:
+            payload["sha"] = sha
+
+        req_put = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"token {github_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "SisCalc-Backup-Bot"
+            },
+            method="PUT"
+        )
+        with urllib.request.urlopen(req_put, timeout=10) as resp:
+            return resp.status in (200, 201)
+    except Exception:
+        return False
+
+
 def render(user):
     st.title("⚙️ Painel de Administração - Forte Pinheirinho")
     conn = get_connection()
@@ -293,7 +348,6 @@ def render(user):
 
         st.markdown("---")
         if st.button("🚀 Testar Envio para o GitHub Agora", key="btn_teste_github", use_container_width=True):
-            from core.database import sincronizar_backup_github
             token = st.secrets.get("GITHUB_TOKEN")
             repo = st.secrets.get("GITHUB_REPO")
             branch = st.secrets.get("GITHUB_BRANCH", "main")
@@ -319,3 +373,4 @@ def render(user):
                 st.rerun()
 
     conn.close()
+
