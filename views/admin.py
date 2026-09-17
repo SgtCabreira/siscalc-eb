@@ -1,4 +1,6 @@
+import os
 import streamlit as st
+# ... outros importsimport streamlit as st
 import sqlite3
 import pandas as pd
 import io
