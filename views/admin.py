@@ -295,7 +295,34 @@ def render(user):
                 help="Baixa o arquivo do banco com todas as suas NCs, NEs, estoque, materiais e usuários cadastrados."
             )
             st.success("✅ O banco de dados está online e pronto para download de backup.")
+            if st.button(
+    "🚀 Testar Envio para o GitHub Agora",
+    key="btn_teste_github",
+    use_container_width=True,
+):
+  from core.database import sincronizar_backup_github
 
+  token = st.secrets.get("GITHUB_TOKEN")
+  repo = st.secrets.get("GITHUB_REPO")
+  branch = st.secrets.get("GITHUB_BRANCH", "main")
+
+  if not token or not repo:
+    st.error("Secrets não encontrados. Verifique as configurações no Streamlit.")
+  else:
+    with st.spinner("Enviando cópia de teste para o GitHub..."):
+      ok = sincronizar_backup_github(
+          DB_FILE, github_token=token, repo_name=repo, branch=branch
+      )
+      if ok:
+        st.success(
+            "✅ Sucesso absoluto! O arquivo foi enviado e já está visível no"
+            " seu GitHub."
+        )
+      else:
+        st.error(
+            "Falha ao enviar. Verifique se o token tem a permissão 'repo'"
+            " marcada."
+        )
     with col_bk2:
         st.markdown("##### 📤 Restaurar / Importar Banco Salvo")
         up_db_file = st.file_uploader("Selecione um arquivo de backup (.db):", type=["db", "sqlite", "sqlite3"], key="up_sqlite_db_restore")
