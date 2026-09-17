@@ -4,7 +4,7 @@ import pandas as pd
 import io
 import base64
 from datetime import datetime, timedelta
-from core.database import get_connection
+from core.database import get_connection, DB_FILE
 from core.documentos import formatar_data_br, normalizar_data, exportar_excel_seguro, gerar_pdf_tabela_seguro
 from core.api_cnpj import buscar_dados_cnpj
 from core.gestor_fluxo import GestorFluxoMilitar
@@ -25,7 +25,7 @@ def render(user):
                 sigla = st.text_input("Sigla da OM (ex.: 5ª Cia PE)")
                 nome = st.text_input("Nome da OM")
                 ug = st.text_input("Código de UG")
-                if st.form_submit_button("Cadastrar OM"):
+                if st.form_submit_button("Cadastrar OM", type="primary"):
                     c = conn.cursor()
                     try:
                         c.execute("INSERT INTO oms (sigla, nome, ug) VALUES (?, ?, ?)", (sigla, nome, ug))
@@ -41,7 +41,6 @@ def render(user):
                 dict_om_ed = {f"{row['sigla']} - {row['nome']} (UG: {row['ug']})": row['id'] for _, row in df_oms.iterrows()}
                 om_sel_edit = st.selectbox("Selecione a OM para editar:", list(dict_om_ed.keys()), key="sel_om_edit")
                 id_om_edit = dict_om_ed[om_sel_edit]
-
                 c = conn.cursor()
                 c.execute("SELECT * FROM oms WHERE id = ?", (id_om_edit,))
                 dados_om = dict(c.fetchone())
@@ -51,7 +50,7 @@ def render(user):
                     novo_nome_om = st.text_input("Nome da OM:", value=dados_om['nome'], key="ed_nome_om")
                     nova_ug = st.text_input("Código de UG:", value=dados_om['ug'] if dados_om['ug'] else "", key="ed_ug")
 
-                    if st.form_submit_button("Salvar Alterações da OM"):
+                    if st.form_submit_button("Salvar Alterações da OM", type="primary"):
                         try:
                             c.execute("UPDATE oms SET sigla = ?, nome = ?, ug = ? WHERE id = ?",
                                       (nova_sigla, novo_nome_om, nova_ug, id_om_edit))
@@ -69,7 +68,6 @@ def render(user):
                 dict_om_th = {f"{row['sigla']} - {row['nome']}": row['id'] for _, row in df_oms.iterrows()}
                 om_th_sel = st.selectbox("Selecione a OM para personalizar:", list(dict_om_th.keys()), key="sel_om_th")
                 id_om_th = dict_om_th[om_th_sel]
-
                 c = conn.cursor()
                 c.execute("SELECT * FROM oms WHERE id = ?", (id_om_th,))
                 dados_om_th = dict(c.fetchone())
@@ -86,7 +84,7 @@ def render(user):
                     lema_atual = dados_om_th.get('lema') or ''
                     novo_lema = st.text_input("Lema ou Frase da OM (opcional):", value=lema_atual)
 
-                    if st.form_submit_button("Salvar Identidade Visual"):
+                    if st.form_submit_button("Salvar Identidade Visual", type="primary"):
                         c = conn.cursor()
                         if arquivo_logo is not None:
                             logo_b64_new = base64.b64encode(arquivo_logo.read()).decode('utf-8')
@@ -159,7 +157,7 @@ def render(user):
                     )
 
                     sen = st.text_input("Senha Inicial", type="password", value="1234", key="cad_user_sen")
-                    if st.form_submit_button("Cadastrar Militar"):
+                    if st.form_submit_button("Cadastrar Militar", type="primary"):
                         if not perfis_escolhidos:
                             st.error("Selecione pelo menos um perfil de acesso para o militar.")
                         else:
@@ -184,7 +182,6 @@ def render(user):
                 }
                 user_selecionado = st.selectbox("Selecione o militar para editar:", list(opcoes_edit.keys()), key="edit_user_sel")
                 user_id_edit = opcoes_edit[user_selecionado]
-
                 c = conn.cursor()
                 c.execute("SELECT * FROM usuarios WHERE id = ?", (user_id_edit,))
                 dados_u = dict(c.fetchone())
@@ -218,8 +215,7 @@ def render(user):
 
                     st.markdown("---")
                     confirmar_alteracao = st.checkbox("⚠️ Confirmo que conferi os dados e desejo salvar estas alterações.", key="chk_conf_u")
-
-                    if st.form_submit_button("Salvar Todas as Alterações do Usuário"):
+                    if st.form_submit_button("Salvar Todas as Alterações do Usuário", type="primary"):
                         if not confirmar_alteracao:
                             st.warning("Por favor, marque a caixa de confirmação acima para autorizar as alterações.")
                         elif not novos_perfis_sel:
@@ -242,7 +238,6 @@ def render(user):
                                     st.session_state['usuario'] = dict(c.fetchone())
                                     if st.session_state.get('perfil_ativo') not in novos_perfis_sel:
                                         st.session_state['perfil_ativo'] = novos_perfis_sel[0]
-
                                 st.success(f"✅ Confirmação: Dados e perfis de {novo_posto} {novo_nome} atualizados com sucesso!")
                                 st.rerun()
                             except sqlite3.IntegrityError:
@@ -280,67 +275,39 @@ def render(user):
     st.caption("🛡️ **Importante no Streamlit Cloud:** Como os servidores em nuvem podem reiniciar ou redefinir arquivos locais ao atualizar o código no GitHub, utilize esta ferramenta para baixar cópias de segurança (.db) e restaurar todos os seus dados a qualquer momento em 1 clique.")
 
     col_bk1, col_bk2 = st.columns(2)
-   with col_bk1:
-      st.markdown("##### 📥 Exportar / Baixar Banco Atual")
-      import os
-
-      DB_FILE = (
-          "sistema_militar.db"  # <-- ESSA LINHA RESOLVE O ERRO VERMELHO NA HORA
-      )
-
-      if os.path.exists(DB_FILE):
-        with open(DB_FILE, "rb") as f_db:
-          bytes_db = f_db.read()
-        st.download_button(
-            label="📥 Baixar Cópia Completa do Banco (sistema_militar.db)",
-            data=bytes_db,
-            file_name=(
-                f"sistema_militar_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            ),
-            mime="application/x-sqlite3",
-            use_container_width=True,
-            help=(
-                "Baixa o arquivo do banco com todas as suas NCs, NEs, estoque,"
-                " materiais e usuários cadastrados."
-            ),
-        )
-        st.success(
-            "✅ O banco de dados está online e pronto para download de backup."
-        )
-
-      # Botão para testar o envio para o GitHub:
-      st.markdown("---")
-      if st.button(
-          "🚀 Testar Envio para o GitHub Agora",
-          key="btn_teste_github",
-          use_container_width=True,
-      ):
-        from core.database import sincronizar_backup_github
-
-        token = st.secrets.get("GITHUB_TOKEN")
-        repo = st.secrets.get("GITHUB_REPO")
-        branch = st.secrets.get("GITHUB_BRANCH", "main")
-
-        if not token or not repo:
-          st.error(
-              "Secrets não encontrados. Verifique as configurações no"
-              " Streamlit."
-          )
-        else:
-          with st.spinner("Enviando cópia de teste para o GitHub..."):
-            ok = sincronizar_backup_github(
-                DB_FILE, github_token=token, repo_name=repo, branch=branch
+    with col_bk1:
+        st.markdown("##### 📥 Exportar / Baixar Banco Atual")
+        import os
+        if os.path.exists(DB_FILE):
+            with open(DB_FILE, "rb") as f_db:
+                bytes_db = f_db.read()
+            st.download_button(
+                label="📥 Baixar Cópia Completa do Banco (sistema_militar.db)",
+                data=bytes_db,
+                file_name=f"sistema_militar_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
+                mime="application/x-sqlite3",
+                use_container_width=True,
+                help="Baixa o arquivo do banco com todas as suas NCs, NEs, estoque, materiais e usuários cadastrados."
             )
-            if ok:
-              st.success(
-                  "✅ Sucesso! O arquivo foi enviado e já está visível no seu"
-                  " GitHub."
-              )
+            st.success("✅ O banco de dados está online e pronto para download de backup.")
+
+        st.markdown("---")
+        if st.button("🚀 Testar Envio para o GitHub Agora", key="btn_teste_github", use_container_width=True):
+            from core.database import sincronizar_backup_github
+            token = st.secrets.get("GITHUB_TOKEN")
+            repo = st.secrets.get("GITHUB_REPO")
+            branch = st.secrets.get("GITHUB_BRANCH", "main")
+
+            if not token or not repo:
+                st.error("Secrets não encontrados. Verifique as configurações no Streamlit.")
             else:
-              st.error(
-                  "Falha ao enviar. Verifique se o token tem a permissão"
-                  " 'repo' marcada."
-              )
+                with st.spinner("Enviando cópia de teste para o GitHub..."):
+                    ok = sincronizar_backup_github(DB_FILE, github_token=token, repo_name=repo, branch=branch)
+                    if ok:
+                        st.success("✅ Sucesso! O arquivo foi enviado e já está visível no seu GitHub.")
+                    else:
+                        st.error("Falha ao enviar. Verifique se o token tem a permissão 'repo' marcada.")
+
     with col_bk2:
         st.markdown("##### 📤 Restaurar / Importar Banco Salvo")
         up_db_file = st.file_uploader("Selecione um arquivo de backup (.db):", type=["db", "sqlite", "sqlite3"], key="up_sqlite_db_restore")
