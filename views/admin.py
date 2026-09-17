@@ -280,52 +280,67 @@ def render(user):
     st.caption("🛡️ **Importante no Streamlit Cloud:** Como os servidores em nuvem podem reiniciar ou redefinir arquivos locais ao atualizar o código no GitHub, utilize esta ferramenta para baixar cópias de segurança (.db) e restaurar todos os seus dados a qualquer momento em 1 clique.")
 
     col_bk1, col_bk2 = st.columns(2)
-    with col_bk1:
-        st.markdown("##### 📥 Exportar / Baixar Banco Atual")
-        import os
-        if os.path.exists(DB_FILE):
-            with open(DB_FILE, "rb") as f_db:
-                bytes_db = f_db.read()
-            st.download_button(
-                label="📥 Baixar Cópia Completa do Banco (sistema_militar.db)",
-                data=bytes_db,
-                file_name=f"sistema_militar_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
-                mime="application/x-sqlite3",
-                use_container_width=True,
-                help="Baixa o arquivo do banco com todas as suas NCs, NEs, estoque, materiais e usuários cadastrados."
-            )
-            st.success("✅ O banco de dados está online e pronto para download de backup.")
-            st.markdown("---")
-        if st.button(
-            "🚀 Testar Envio para o GitHub Agora",
-            key="btn_teste_github",
+   with col_bk1:
+      st.markdown("##### 📥 Exportar / Baixar Banco Atual")
+      import os
+
+      DB_FILE = (
+          "sistema_militar.db"  # <-- ESSA LINHA RESOLVE O ERRO VERMELHO NA HORA
+      )
+
+      if os.path.exists(DB_FILE):
+        with open(DB_FILE, "rb") as f_db:
+          bytes_db = f_db.read()
+        st.download_button(
+            label="📥 Baixar Cópia Completa do Banco (sistema_militar.db)",
+            data=bytes_db,
+            file_name=(
+                f"sistema_militar_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+            ),
+            mime="application/x-sqlite3",
             use_container_width=True,
-        ):
-          from core.database import sincronizar_backup_github
+            help=(
+                "Baixa o arquivo do banco com todas as suas NCs, NEs, estoque,"
+                " materiais e usuários cadastrados."
+            ),
+        )
+        st.success(
+            "✅ O banco de dados está online e pronto para download de backup."
+        )
 
-          token = st.secrets.get("GITHUB_TOKEN")
-          repo = st.secrets.get("GITHUB_REPO")
-          branch = st.secrets.get("GITHUB_BRANCH", "main")
+      # Botão para testar o envio para o GitHub:
+      st.markdown("---")
+      if st.button(
+          "🚀 Testar Envio para o GitHub Agora",
+          key="btn_teste_github",
+          use_container_width=True,
+      ):
+        from core.database import sincronizar_backup_github
 
-          if not token or not repo:
-            st.error(
-                "Secrets não encontrados. Verifique as configurações no"
-                " Streamlit."
+        token = st.secrets.get("GITHUB_TOKEN")
+        repo = st.secrets.get("GITHUB_REPO")
+        branch = st.secrets.get("GITHUB_BRANCH", "main")
+
+        if not token or not repo:
+          st.error(
+              "Secrets não encontrados. Verifique as configurações no"
+              " Streamlit."
+          )
+        else:
+          with st.spinner("Enviando cópia de teste para o GitHub..."):
+            ok = sincronizar_backup_github(
+                DB_FILE, github_token=token, repo_name=repo, branch=branch
             )
-          else:
-            with st.spinner("Enviando cópia de teste para o GitHub..."):
-              ok = sincronizar_backup_github(
-                  DB_FILE, github_token=token, repo_name=repo, branch=branch
+            if ok:
+              st.success(
+                  "✅ Sucesso! O arquivo foi enviado e já está visível no seu"
+                  " GitHub."
               )
-              if ok:
-                st.success(
-                    "✅ Sucesso! O arquivo foi enviado e já está visível no seu"
-                    " GitHub."
-                )
-              else:
-                st.error(
-                    "Falha ao enviar. Verifique o Token e a permissão 'repo'."
-                )
+            else:
+              st.error(
+                  "Falha ao enviar. Verifique se o token tem a permissão"
+                  " 'repo' marcada."
+              )
     with col_bk2:
         st.markdown("##### 📤 Restaurar / Importar Banco Salvo")
         up_db_file = st.file_uploader("Selecione um arquivo de backup (.db):", type=["db", "sqlite", "sqlite3"], key="up_sqlite_db_restore")
